@@ -9,7 +9,7 @@ from sqlalchemy import select, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Team, TeamAccount
+from app.models import Team, TeamAccount, RedemptionCode
 from app.services.chatgpt import ChatGPTService
 from app.services.encryption import encryption_service
 from app.utils.token_parser import TokenParser
@@ -1859,6 +1859,10 @@ class TeamService:
                     "message": None,
                     "error": f"Team ID {team_id} 不存在"
                 }
+
+            # 1.5 处理 RedemptionCode 关联 (置空)
+            update_stmt = update(RedemptionCode).where(RedemptionCode.used_team_id == team_id).values(used_team_id=None)
+            await db_session.execute(update_stmt)
 
             # 2. 删除 Team (级联删除 team_accounts 和 redemption_records)
             await db_session.delete(team)

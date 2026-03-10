@@ -45,7 +45,7 @@
         <h3><i data-lucide="search"></i> 搜索筛选</h3>
     </div>
 
-    <form method="get" action="/admin/records" class="search-form-grid">
+    <form method="get" action="{{ admin_base_path }}/records" class="search-form-grid">
         <div class="form-group">
             <label for="email">用户邮箱</label>
             <input type="text" id="email" name="email" value="{{ filters.email or '' }}" placeholder="输入邮箱搜索"
@@ -74,7 +74,7 @@
             <button type="submit" class="btn btn-primary" style="flex: 1;">
                 <i data-lucide="search" style="width: 16px; height: 16px;"></i> 搜索
             </button>
-            <a href="/admin/records" class="btn btn-secondary">
+            <a href="{{ admin_base_path }}/records" class="btn btn-secondary">
                 <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> 重置
             </a>
         </div>
@@ -277,7 +277,7 @@
             btn.innerHTML = '<i data-lucide="loader-2" class="spin" style="width: 14px; height: 14px;"></i> 处理中...';
             lucide.createIcons();
 
-            const response = await fetch(`/admin/records/${recordId}/withdraw`, {
+            const response = await fetch(adminUrl(`/records/${recordId}/withdraw`), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

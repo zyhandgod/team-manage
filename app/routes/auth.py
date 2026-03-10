@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.config import settings
 from app.services.auth import auth_service
 from app.dependencies.auth import get_current_user
 
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # 创建路由器
 router = APIRouter(
-    prefix="/auth",
+    prefix=settings.auth_route_prefix,
     tags=["auth"]
 )
 

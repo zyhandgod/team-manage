@@ -41,25 +41,25 @@
         <aside class="sidebar" id="adminSidebar">
             <ul class="sidebar-menu">
                 <li class="menu-item {% if active_page == 'dashboard' %}active{% endif %}">
-                    <a href="/admin">
+                    <a href="{{ admin_base_path }}">
                         <span class="menu-icon" data-lucide="layout-dashboard"></span>
                         <span class="menu-text">控制台</span>
                     </a>
                 </li>
                 <li class="menu-item {% if active_page == 'codes' %}active{% endif %}">
-                    <a href="/admin/codes">
+                    <a href="{{ admin_base_path }}/codes">
                         <span class="menu-icon" data-lucide="ticket"></span>
                         <span class="menu-text">兑换码管理</span>
                     </a>
                 </li>
                 <li class="menu-item {% if active_page == 'records' %}active{% endif %}">
-                    <a href="/admin/records">
+                    <a href="{{ admin_base_path }}/records">
                         <span class="menu-icon" data-lucide="file-text"></span>
                         <span class="menu-text">使用记录</span>
                     </a>
                 </li>
                 <li class="menu-item {% if active_page == 'settings' %}active{% endif %}">
-                    <a href="/admin/settings">
+                    <a href="{{ admin_base_path }}/settings">
                         <span class="menu-icon" data-lucide="settings"></span>
                         <span class="menu-text">系统设置</span>
                     </a>
@@ -380,6 +380,13 @@
     </div>
     <div id="toast" class="toast"></div>
 
+    <script>
+        window.APP_CONFIG = {
+            adminBasePath: {{ admin_base_path | tojson }},
+            loginPath: {{ admin_login_path | tojson }},
+            authBasePath: {{ auth_api_prefix | tojson }}
+        };
+    </script>
     <script src="{{ url_for('static', path='/js/main.js') }}"></script>
     <script>
         lucide.createIcons();

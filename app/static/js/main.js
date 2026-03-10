@@ -2,6 +2,33 @@
  * GPT Team 管理系统 - 通用 JavaScript
  */
 
+const APP_CONFIG = window.APP_CONFIG || {
+    adminBasePath: '/admin',
+    loginPath: '/login',
+    authBasePath: '/auth'
+};
+
+function joinBasePath(basePath, path = '') {
+    const normalizedBase = (basePath || '').replace(/\/+$/, '');
+    if (!path) {
+        return normalizedBase || '/';
+    }
+
+    return `${normalizedBase}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function adminUrl(path = '') {
+    return joinBasePath(APP_CONFIG.adminBasePath, path);
+}
+
+function authUrl(path = '') {
+    return joinBasePath(APP_CONFIG.authBasePath, path);
+}
+
+function isAdminPath(pathname) {
+    return pathname === APP_CONFIG.adminBasePath || pathname.startsWith(`${APP_CONFIG.adminBasePath}/`);
+}
+
 // Toast 提示函数
 function showToast(message, type = 'info') {
     const toast = document.getElementById('toast');
@@ -44,7 +71,7 @@ async function logout() {
     }
 
     try {
-        const response = await fetch('/auth/logout', {
+        const response = await fetch(authUrl('/logout'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -54,7 +81,7 @@ async function logout() {
         const data = await response.json();
 
         if (response.ok && data.success) {
-            window.location.href = '/login';
+            window.location.href = APP_CONFIG.loginPath;
         } else {
             showToast('登出失败', 'error');
         }
@@ -100,17 +127,17 @@ document.addEventListener('DOMContentLoaded', function () {
 // 检查认证状态
 async function checkAuthStatus() {
     // 如果在登录页面,跳过检查
-    if (window.location.pathname === '/login') {
+    if (window.location.pathname === APP_CONFIG.loginPath) {
         return;
     }
 
     try {
-        const response = await fetch('/auth/status');
+        const response = await fetch(authUrl('/status'));
         const data = await response.json();
 
-        if (!data.authenticated && window.location.pathname.startsWith('/admin')) {
+        if (!data.authenticated && isAdminPath(window.location.pathname)) {
             // 未登录且在管理员页面,跳转到登录页
-            window.location.href = '/login';
+            window.location.href = APP_CONFIG.loginPath;
         }
     } catch (error) {
         console.error('检查认证状态失败:', error);
@@ -272,7 +299,7 @@ async function handleSingleImport(event) {
     submitButton.textContent = '导入中...';
 
     try {
-        const result = await apiCall('/admin/teams/import', {
+        const result = await apiCall(adminUrl('/teams/import'), {
             method: 'POST',
             body: JSON.stringify({
                 import_type: 'single',
@@ -332,7 +359,7 @@ async function handleBatchImport(event) {
     submitButton.textContent = '导入中...';
 
     try {
-        const response = await fetch('/admin/teams/import', {
+        const response = await fetch(adminUrl('/teams/import'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -440,7 +467,7 @@ async function generateSingle(event) {
     if (customCode) data.code = customCode;
     if (expiresDays) data.expires_days = parseInt(expiresDays);
 
-    const result = await apiCall('/admin/codes/generate', {
+    const result = await apiCall(adminUrl('/codes/generate'), {
         method: 'POST',
         body: JSON.stringify(data)
     });
@@ -451,7 +478,7 @@ async function generateSingle(event) {
         form.reset();
         showToast('兑换码生成成功', 'success');
         // 如果在列表中，延迟刷新
-        if (window.location.pathname === '/admin/codes') {
+        if (window.location.pathname === adminUrl('/codes')) {
             setTimeout(() => location.reload(), 2000);
         }
     } else {
@@ -480,7 +507,7 @@ async function generateBatch(event) {
     };
     if (expiresDays) data.expires_days = parseInt(expiresDays);
 
-    const result = await apiCall('/admin/codes/generate', {
+    const result = await apiCall(adminUrl('/codes/generate'), {
         method: 'POST',
         body: JSON.stringify(data)
     });
@@ -491,7 +518,7 @@ async function generateBatch(event) {
         document.getElementById('batchResult').style.display = 'block';
         form.reset();
         showToast(`成功生成 ${result.data.total} 个兑换码`, 'success');
-        if (window.location.pathname === '/admin/codes') {
+        if (window.location.pathname === adminUrl('/codes')) {
             setTimeout(() => location.reload(), 3000);
         }
     } else {
@@ -603,7 +630,7 @@ async function loadModalMemberList(teamId) {
     if (invitedTableBody) invitedTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 2rem;">加载中...</td></tr>';
 
     try {
-        const result = await apiCall(`/admin/teams/${teamId}/members/list`);
+        const result = await apiCall(adminUrl(`/teams/${teamId}/members/list`));
         if (result.success) {
             const allMembers = result.data.members || [];
             const joinedMembers = allMembers.filter(m => m.status === 'joined');
@@ -677,7 +704,7 @@ async function revokeInvite(teamId, email, inModal = false) {
 
     try {
         showToast('正在撤回...', 'info');
-        const result = await apiCall(`/admin/teams/${teamId}/invites/revoke`, {
+        const result = await apiCall(adminUrl(`/teams/${teamId}/invites/revoke`), {
             method: 'POST',
             body: JSON.stringify({ email: email })
         });
@@ -714,7 +741,7 @@ async function handleAddMember(event) {
     submitButton.textContent = '添加中...';
 
     try {
-        const result = await apiCall(`/admin/teams/${teamId}/members/add`, {
+        const result = await apiCall(adminUrl(`/teams/${teamId}/members/add`), {
             method: 'POST',
             body: JSON.stringify({ email })
         });
@@ -746,7 +773,7 @@ async function deleteMember(teamId, userId, email, inModal = false) {
 
     try {
         showToast('正在删除...', 'info');
-        const result = await apiCall(`/admin/teams/${teamId}/members/${userId}/delete`, {
+        const result = await apiCall(adminUrl(`/teams/${teamId}/members/${userId}/delete`), {
             method: 'POST'
         });
 

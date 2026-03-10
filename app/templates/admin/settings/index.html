@@ -154,7 +154,7 @@
         }
 
         try {
-            const response = await fetch('/admin/settings/proxy', {
+            const response = await fetch(adminUrl('/settings/proxy'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -194,7 +194,7 @@
         }
 
         try {
-            const response = await fetch('/auth/change-password', {
+            const response = await fetch(authUrl('/change-password'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -210,7 +210,7 @@
             if (response.ok && data.success) {
                 showToast('密码修改成功,即将跳转到登录页', 'success');
                 setTimeout(() => {
-                    window.location.href = '/login';
+                    window.location.href = window.APP_CONFIG.loginPath;
                 }, 2000);
             } else {
                 showToast(data.error || '修改失败', 'error');
@@ -227,7 +227,7 @@
         const level = document.getElementById('logLevel').value;
 
         try {
-            const response = await fetch('/admin/settings/log-level', {
+            const response = await fetch(adminUrl('/settings/log-level'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -261,7 +261,7 @@
         }
 
         try {
-            const response = await fetch('/admin/settings/webhook', {
+            const response = await fetch(adminUrl('/settings/webhook'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

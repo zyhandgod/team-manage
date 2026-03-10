@@ -27,12 +27,15 @@
 对接程序在收到通知并准备好新账号数据后，可以调用以下接口进行导入。
 
 ### 接口信息
-- **接口地址**: `/admin/teams/import`
+- **接口地址**: `{ADMIN_PATH}/teams/import`
 - **方法**: `POST`
 - **认证方式**:
   1. **Session 认证**: 浏览器访问时自动使用。
   2. **API Key 认证**: 对接程序建议使用此方式。在 `Header` 中添加 `X-API-Key`。
 - **配置位置**: 管理员后台 -> 系统设置 -> 库存预警 Webhook -> API Key。
+
+> `ADMIN_PATH` 是后台隐藏路径，例如 `/vault-4207fa3f9023cf5140983727`。
+> 如果你没有显式配置它，系统会基于 `SECRET_KEY` 自动生成一个隐藏路径。
 
 ### 导入模式 A：单账号导入 (Single)
 适用于逐个导入账号。
@@ -81,7 +84,7 @@ app = FastAPI()
 
 # 这里的 API Key 需要与管理系统“系统设置”中配置的一致
 API_KEY = "YOUR_CONFIGURED_API_KEY"
-ADMIN_API_URL = "http://your-manager-domain.com/admin/teams/import"
+ADMIN_API_URL = "http://your-manager-domain.com{ADMIN_PATH}/teams/import"
 
 @app.post("/webhook/low-stock")
 async def handle_low_stock(request: Request):

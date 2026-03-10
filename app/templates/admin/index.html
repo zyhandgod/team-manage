@@ -105,13 +105,13 @@
             </div>
 
             <!-- 搜索框 -->
-            <form action="/admin" method="get" class="search-form">
+            <form action="{{ admin_base_path }}" method="get" class="search-form">
                 <div class="input-group-clean">
                     <i data-lucide="search" style="width: 14px; height: 14px;"></i>
                     <input type="text" name="search" value="{{ search or '' }}" placeholder="搜索邮箱/Account ID..."
                         style="width: 200px;">
                     {% if search %}
-                    <a href="/admin" title="清除搜索">
+                    <a href="{{ admin_base_path }}" title="清除搜索">
                         <i data-lucide="x-circle" style="width: 14px; height: 14px;"></i>
                     </a>
                     {% endif %}
@@ -492,7 +492,7 @@
 
         try {
             showToast('正在开启...', 'info');
-            const response = await fetch(`/admin/teams/${teamId}/enable-device-auth`, {
+            const response = await fetch(adminUrl(`/teams/${teamId}/enable-device-auth`), {
                 method: 'POST'
             });
 
@@ -553,7 +553,7 @@
                 showToast('刷新成功', 'success');
 
                 // 刷新成功后，重新获取 Team 信息以更新模态框中的 AT
-                const infoResponse = await fetch(`/admin/teams/${teamId}/info`);
+                const infoResponse = await fetch(adminUrl(`/teams/${teamId}/info`));
                 const infoData = await infoResponse.json();
 
                 if (infoResponse.ok && infoData.success) {
@@ -583,7 +583,7 @@
 
         try {
             showToast('正在删除...', 'info');
-            const response = await fetch(`/admin/teams/${teamId}/delete`, {
+            const response = await fetch(adminUrl(`/teams/${teamId}/delete`), {
                 method: 'POST'
             });
 
@@ -601,7 +601,7 @@
     }
     async function editTeam(teamId) {
         try {
-            const response = await fetch(`/admin/teams/${teamId}/info`);
+            const response = await fetch(adminUrl(`/teams/${teamId}/info`));
             const data = await response.json();
 
             if (response.ok && data.success) {
@@ -643,7 +643,7 @@
         };
 
         try {
-            const response = await fetch(`/admin/teams/${teamId}/update`, {
+            const response = await fetch(adminUrl(`/teams/${teamId}/update`), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -815,15 +815,15 @@
     }
 
     function handleBatchRefresh() {
-        handleBatchAction('/admin/teams/batch-refresh', '批量刷新');
+        handleBatchAction(adminUrl('/teams/batch-refresh'), '批量刷新');
     }
 
     function handleBatchDelete() {
-        handleBatchAction('/admin/teams/batch-delete', '批量删除');
+        handleBatchAction(adminUrl('/teams/batch-delete'), '批量删除');
     }
 
     function handleBatchEnableDeviceAuth() {
-        handleBatchAction('/admin/teams/batch-enable-device-auth', '批量开启验证');
+        handleBatchAction(adminUrl('/teams/batch-enable-device-auth'), '批量开启验证');
     }
 
     function changePerPage(val) {

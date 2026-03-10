@@ -12,6 +12,9 @@ from app.config import settings
 
 async def create_default_settings():
     """创建默认系统设置"""
+    if not settings.debug and settings.is_default_admin_password:
+        raise RuntimeError("生产环境初始化数据库前，请先修改 ADMIN_PASSWORD。")
+
     async with AsyncSessionLocal() as session:
         # 检查是否已经初始化
         result = await session.execute(select(Setting).where(Setting.key == "initialized"))

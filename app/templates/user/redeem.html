@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPT Team 兑换</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/user.css') }}?v=20260310b">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/user.css') }}?v=20260310d">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -16,8 +16,7 @@
             <h1>GPT Team 兑换</h1>
             <p class="subtitle">使用兑换码加入 ChatGPT Team</p>
             {% if remaining_spots is not none %}
-            <div class="spots-badge"
-                style="display: inline-flex; align-items: center; gap: 6px; background: var(--primary-soft); padding: 6px 12px; border-radius: 20px; font-size: 0.875rem; color: var(--primary); margin-top: 10px; border: 1px solid var(--border-base);">
+            <div class="spots-badge">
                 <i data-lucide="users" style="width: 14px; height: 14px;"></i> 剩余车位: {{ remaining_spots }}
             </div>
             {% endif %}
@@ -103,7 +102,7 @@
     <!-- Toast提示 -->
     <div id="toast" class="toast"></div>
 
-    <script src="{{ url_for('static', path='/js/redeem.js') }}?v=20260310b"></script>
+    <script src="{{ url_for('static', path='/js/redeem.js') }}?v=20260310d"></script>
     <script>
         if (window.lucide) lucide.createIcons();
     </script>

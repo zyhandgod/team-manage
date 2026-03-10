@@ -2,19 +2,21 @@
 GPT Team 管理和兑换码自动邀请系统
 FastAPI 应用入口文件
 """
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
 from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
-import logging
-from pathlib import Path
-from datetime import datetime
 
-from contextlib import asynccontextmanager
 # 导入路由
 from app.routes import redeem, auth, admin, api, user, warranty
-from app.config import settings
+from app.config import settings, DEFAULT_ADMIN_PASSWORD
 from app.database import init_db, close_db, AsyncSessionLocal
 from app.services.auth import auth_service
 
@@ -22,7 +24,59 @@ from app.services.auth import auth_service
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = BASE_DIR / "app"
 
-from starlette.exceptions import HTTPException as StarletteHTTPException
+logger = logging.getLogger(__name__)
+
+
+async def validate_runtime_security() -> None:
+    """在启动时校验关键安全配置"""
+    issues = []
+    warnings = []
+
+    if settings.is_default_secret_key:
+        message = "SECRET_KEY 仍在使用默认值"
+        if settings.debug:
+            warnings.append(f"{message}，仅建议用于本地开发。")
+        else:
+            issues.append(f"{message}，生产环境必须改为随机字符串。")
+
+    if settings.uses_common_admin_path:
+        message = f"ADMIN_PATH 使用了易猜测的常见路径: {settings.admin_base_path}"
+        if settings.debug:
+            warnings.append(f"{message}。")
+        else:
+            issues.append(f"{message}。")
+
+    async with AsyncSessionLocal() as session:
+        existing_hash = await auth_service.get_admin_password_hash(session)
+
+    if existing_hash and auth_service.verify_password(DEFAULT_ADMIN_PASSWORD, existing_hash):
+        message = "数据库中的管理员密码仍是默认值"
+        if settings.debug:
+            warnings.append(f"{message}，仅建议用于本地开发。")
+        else:
+            issues.append(f"{message}，生产环境请先重置。")
+    elif not existing_hash:
+        if not settings.admin_password.strip():
+            issues.append("ADMIN_PASSWORD 不能为空。")
+        elif settings.is_default_admin_password:
+            message = "ADMIN_PASSWORD 仍在使用默认初始密码"
+            if settings.debug:
+                warnings.append(f"{message}，仅建议用于本地开发。")
+            else:
+                issues.append(f"{message}，生产环境首次启动前必须修改。")
+    elif settings.is_default_admin_password:
+        warnings.append(
+            "数据库中已存在管理员密码哈希，但环境变量 ADMIN_PASSWORD 仍是默认值。"
+            "如果是新环境首次部署，请先替换掉它。"
+        )
+
+    for warning in warnings:
+        logger.warning(warning)
+
+    if issues:
+        raise RuntimeError("启动安全校验失败: " + " ".join(issues))
+
+    logger.info("后台入口路径已启用隐藏前缀: %s", settings.admin_base_path)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,12 +97,16 @@ async def lifespan(app: FastAPI):
         from app.db_migrations import run_auto_migration
         run_auto_migration()
         
-        # 3. 初始化管理员密码（如果不存在）
+        # 3. 校验运行安全配置
+        await validate_runtime_security()
+
+        # 4. 初始化管理员密码（如果不存在）
         async with AsyncSessionLocal() as session:
             await auth_service.initialize_admin_password(session)
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
+        raise
     
     yield
     
@@ -62,7 +120,10 @@ app = FastAPI(
     title="GPT Team 管理系统",
     description="ChatGPT Team 账号管理和兑换码自动邀请系统",
     version="0.1.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None
 )
 
 # 全局异常处理
@@ -73,7 +134,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         # 检查是否是 HTML 请求
         accept = request.headers.get("accept", "")
         if "text/html" in accept:
-            return RedirectResponse(url="/login")
+            return RedirectResponse(url=settings.admin_login_path)
     
     # 默认返回 JSON 响应（FastAPI 的默认行为）
     return JSONResponse(
@@ -88,7 +149,7 @@ app.add_middleware(
     session_cookie="session",
     max_age=14 * 24 * 60 * 60,  # 14 天
     same_site="lax",
-    https_only=False  # 开发环境设为 False，生产环境应设为 True
+    https_only=settings.session_https_only
 )
 
 # 配置静态文件
@@ -96,6 +157,9 @@ app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="stati
 
 # 配置模板引擎
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
+templates.env.globals["admin_base_path"] = settings.admin_base_path
+templates.env.globals["admin_login_path"] = settings.admin_login_path
+templates.env.globals["auth_api_prefix"] = settings.auth_route_prefix
 
 # 添加模板过滤器
 def format_datetime(dt):
@@ -136,8 +200,6 @@ logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
-
 # 注册路由
 app.include_router(user.router)  # 用户路由(根路径)
 app.include_router(redeem.router)
@@ -147,7 +209,7 @@ app.include_router(admin.router)
 app.include_router(api.router)
 
 
-@app.get("/login", response_class=HTMLResponse)
+@app.get(settings.admin_login_path, response_class=HTMLResponse, include_in_schema=False)
 async def login_page(request: Request):
     """登录页面"""
     return templates.TemplateResponse(

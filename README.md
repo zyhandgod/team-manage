@@ -120,14 +120,15 @@ APP_NAME=GPT Team 管理系统
 APP_VERSION=0.1.0
 APP_HOST=0.0.0.0
 APP_PORT=8008
-DEBUG=True
+DEBUG=False  # 本地调试可临时改为 True，生产环境必须为 False
 
 # 数据库配置（默认使用 SQLite）
 DATABASE_URL=sqlite+aiosqlite:///team_manage.db
 
 # 安全配置（生产环境请修改）
-SECRET_KEY=your-secret-key-here-change-in-production
-ADMIN_PASSWORD=admin123
+SECRET_KEY=replace-with-a-64-char-random-string
+ADMIN_PASSWORD=replace-with-a-strong-initial-password
+ADMIN_PATH=/replace-with-a-long-random-admin-path
 
 # 日志配置
 LOG_LEVEL=INFO
@@ -159,12 +160,14 @@ python app/main.py
 ### 7. 访问应用
 
 - **用户兑换页面**: http://localhost:8008/
-- **管理员登录页面**: http://localhost:8008/login
-- **管理员控制台**: http://localhost:8008/admin
+- **管理员登录页面**: `http://localhost:8008${ADMIN_PATH}/login`
+- **管理员控制台**: `http://localhost:8008${ADMIN_PATH}`
 
-**默认管理员账号**:
+**管理员账号**:
 - 用户名: `admin`
-- 密码: `admin123`（请在首次登录后修改）
+- 密码: 使用你在 `ADMIN_PASSWORD` 中设置的初始密码
+
+> 如果未显式配置 `ADMIN_PATH`，系统会基于 `SECRET_KEY` 自动生成一个隐藏后台路径。
 
 ---
 
@@ -275,15 +278,25 @@ team-manage/
 1. `SECRET_KEY`: 用于 Session 签名，请使用随机字符串
 2. `ADMIN_PASSWORD`: 管理员初始密码，首次登录后请立即修改
 3. `DEBUG`: 生产环境请设置为 `False`
+4. `ADMIN_PATH`: 请使用较长的随机路径，避免继续使用 `/admin` 这类常见入口
+
+系统在 `DEBUG=False` 时会额外做启动校验：
+
+- 默认 `SECRET_KEY` 会阻止启动
+- 首次部署时若仍使用默认 `ADMIN_PASSWORD` 会阻止启动
+- `ADMIN_PATH` 若配置成 `/admin`、`/manage`、`/dashboard` 等常见路径会阻止启动
+- Session Cookie 会自动启用 `Secure`
+- OpenAPI/Swagger 文档会自动关闭
 
 ## 📖 使用指南
 
 ### 管理员操作流程
 
 1. **登录管理员面板**
-   - 访问 http://localhost:8008/login
-   - 使用默认账号登录（admin/admin123）
-   - 首次登录后建议修改密码
+   - 访问 `http://localhost:8008${ADMIN_PATH}/login`
+   - 使用你在 `ADMIN_PASSWORD` 中设置的初始密码登录
+   - 首次登录后建议立即修改密码
+   - 如果数据库已经初始化过，修改 `.env` 不会覆盖旧密码，请在后台“系统设置”里修改
 
 2. **导入 Team 账号**
    - 进入"Team 管理" → "导入 Team"
@@ -335,14 +348,14 @@ team-manage/
 
 主要接口：
 
-- `POST /auth/login` - 管理员登录
-- `POST /auth/logout` - 管理员登出
+- `POST {ADMIN_PATH}/auth/login` - 管理员登录
+- `POST {ADMIN_PATH}/auth/logout` - 管理员登出
 - `POST /redeem/verify` - 验证兑换码
 - `POST /redeem/confirm` - 确认兑换
-- `GET /admin` - 管理员控制台
-- `GET /admin/teams/import` - Team 导入页面
-- `GET /admin/codes` - 兑换码列表
-- `GET /admin/records` - 使用记录
+- `GET {ADMIN_PATH}` - 管理员控制台
+- `GET {ADMIN_PATH}/teams/import` - Team 导入页面
+- `GET {ADMIN_PATH}/codes` - 兑换码列表
+- `GET {ADMIN_PATH}/records` - 使用记录
 
 ## 🐛 故障排除
 

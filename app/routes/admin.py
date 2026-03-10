@@ -10,6 +10,7 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
 
+from app.config import settings
 from app.database import get_db
 from app.dependencies.auth import require_admin
 from app.services.team import TeamService
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # 创建路由器
 router = APIRouter(
-    prefix="/admin",
+    prefix=settings.admin_base_path,
     tags=["admin"]
 )
 

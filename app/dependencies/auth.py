@@ -3,6 +3,7 @@
 用于保护需要认证的路由
 """
 import logging
+from typing import Optional
 from fastapi import Request, HTTPException, status
 from fastapi.responses import RedirectResponse
 
@@ -64,7 +65,7 @@ async def require_admin(request: Request) -> dict:
     )
 
 
-def optional_user(request: Request) -> dict | None:
+def optional_user(request: Request) -> Optional[dict]:
     """
     可选的用户信息
     如果已登录则返回用户信息，否则返回 None

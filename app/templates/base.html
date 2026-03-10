@@ -111,21 +111,54 @@
 
                 <div id="singleImport" class="import-panel">
                     <form id="singleImportForm" onsubmit="handleSingleImport(event)">
+                        <div class="form-callout form-callout-info">
+                            <div class="form-callout-title">长期存储建议</div>
+                            <p>推荐至少填写 AT + ST。系统平时直接用 AT，请求失败或过期后会优先用 ST 刷新；RT 和 Client ID 不是必需项。</p>
+                            <p>系统不会自动读取 Cookie、会话或其他凭证，请手动填写你已合法持有的值。</p>
+                        </div>
+
+                        <!-- JSON 自动解析区域 -->
+                        <div class="form-callout form-callout-success" style="margin-bottom: 1.5rem;">
+                            <div class="form-callout-title">🚀 快速解析 JSON</div>
+                            <p>从 <code>https://chatgpt.com/api/auth/session</code> 复制 JSON 数据，一键自动填充所有字段</p>
+                            <div class="form-group" style="margin-bottom: 1rem;">
+                                <textarea id="jsonParseInput" class="form-control" rows="4" 
+                                    placeholder='粘贴从 https://chatgpt.com/api/auth/session 获取的 JSON 数据，例如：
+{
+  "user": {"email": "your@email.com"},
+  "accessToken": "eyJ...",
+  "sessionToken": "eyJ..."
+}'></textarea>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-success btn-sm" onclick="parseAndFillJSON()">
+                                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 解析并填充
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="openOfficialAPI()">
+                                    <i data-lucide="external-link" style="width: 14px; height: 14px;"></i> 打开 API 页面
+                                </button>
+                                <button type="button" class="btn btn-outline btn-sm" onclick="clearAllFields()">
+                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 清空所有字段
+                                </button>
+                            </div>
+                            <div id="parseResult" style="margin-top: 0.5rem; font-size: 0.875rem;"></div>
+                        </div>
+
                         <div class="form-group">
-                            <label>Access Token (AT) <span class="required">*</span></label>
+                            <label>Access Token (AT)</label>
                             <input type="text" name="accessToken" class="form-control"
-                                placeholder="eyJhbGciOiJSUzI1Ni..." required>
-                            <small class="form-text">必填项，以 eyJ 开头的 JWT Token</small>
+                                placeholder="eyJhbGciOiJSUzI1Ni...">
+                            <small class="form-text">推荐填写。以 eyJ 开头；如果暂时没有，系统也可以先尝试用 ST 换取新的 AT。</small>
                         </div>
                         <div class="form-group">
                             <label>Refresh Token (RT)</label>
                             <input type="text" name="refreshToken" class="form-control" placeholder="rt-...">
-                            <small class="form-text">可选，用于自动刷新 AT</small>
+                            <small class="form-text">可选，用于自动刷新 AT。拿不到可以留空。</small>
                         </div>
                         <div class="form-group">
                             <label>Session Token</label>
                             <input type="text" name="sessionToken" class="form-control" placeholder="eyJ...">
-                            <small class="form-text">可选，作为备选刷新方式</small>
+                            <small class="form-text">长期使用更推荐填写。系统会优先用 ST 刷新 AT；不会自动从官方页面读取这个值。</small>
                         </div>
                         <div class="form-group">
                             <label>Client ID</label>

@@ -7,6 +7,15 @@
     <h2>控制台</h2>
 </div>
 
+<div class="content-section">
+    <div class="section-header" style="margin-bottom: 0;">
+        <div>
+            <h3>长期存储提示</h3>
+            <p class="text-muted small" style="margin-top: 0.35rem;">推荐至少保留 AT + ST。只有 AT 时，当前 token 失效后该 Team 往往会在刷新时进入过期状态。</p>
+        </div>
+    </div>
+</div>
+
 <!-- 统计卡片 -->
 <div class="stats-container">
     <div class="stat-card">
@@ -138,6 +147,7 @@
                 </th>
                 <th>ID</th>
                 <th>邮箱</th>
+                <th>凭证</th>
                 <th>Account ID</th>
                 <th>Team 名称</th>
                 <th>成员数</th>
@@ -159,6 +169,31 @@
                     {% if team.account_role and team.account_role != 'account-owner' %}
                     <span class="role-hint" title="账号角色: {{ team.account_role }}">已降级</span>
                     {% endif %}
+                </td>
+                <td class="credential-cell">
+                    <div class="credential-badges">
+                        {% if team.access_token_encrypted %}
+                        <span class="credential-badge at">AT</span>
+                        {% endif %}
+                        {% if team.session_token_encrypted %}
+                        <span class="credential-badge st">ST</span>
+                        {% endif %}
+                        {% if team.refresh_token_encrypted %}
+                        <span class="credential-badge rt">RT</span>
+                        {% endif %}
+                        {% if not team.session_token_encrypted and not team.refresh_token_encrypted %}
+                        <span class="credential-badge missing">仅 AT</span>
+                        {% endif %}
+                    </div>
+                    <div class="credential-note">
+                        {% if team.session_token_encrypted %}
+                        可自动续期
+                        {% elif team.refresh_token_encrypted %}
+                        依赖 RT 续期
+                        {% else %}
+                        长期稳定性较弱
+                        {% endif %}
+                    </div>
                 </td>
                 <td><span class="text-muted small">{{ team.account_id or '-' }}</span></td>
                 <td>{{ team.team_name or '-' }}</td>
@@ -578,7 +613,7 @@
                 document.getElementById('edit-team-session-token').value = team.session_token || '';
                 document.getElementById('edit-team-client-id').value = team.client_id || '';
                 document.getElementById('edit-team-account-id').value = team.account_id || '';
-                document.getElementById('edit-team-max-members').value = team.max_members || 6;
+                document.getElementById('edit-team-max-members').value = team.max_members || 5;
                 document.getElementById('edit-team-name').value = team.team_name || '';
                 document.getElementById('edit-team-status').value = team.status || 'active';
                 document.getElementById('edit-team-role').value = team.account_role || '未知';

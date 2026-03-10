@@ -170,6 +170,81 @@ function toggleWarrantyDays(checkbox, targetId) {
     }
 }
 
+// === JSON 解析功能 ===
+
+function parseAndFillJSON() {
+    const jsonInput = document.getElementById('jsonParseInput');
+    const resultDiv = document.getElementById('parseResult');
+    
+    if (!jsonInput || !resultDiv) {
+        showToast('找不到解析输入框', 'error');
+        return;
+    }
+    
+    const jsonText = jsonInput.value.trim();
+    if (!jsonText) {
+        showToast('请先粘贴 JSON 数据', 'error');
+        return;
+    }
+    
+    try {
+        const data = JSON.parse(jsonText);
+        
+        // 提取各种字段
+        const email = data.user?.email || '';
+        const accessToken = data.accessToken || '';
+        const sessionToken = data.sessionToken || '';
+        
+        // 填充表单字段
+        const form = document.getElementById('singleImportForm');
+        if (form) {
+            if (email) form.email.value = email;
+            if (accessToken) form.accessToken.value = accessToken;
+            if (sessionToken) form.sessionToken.value = sessionToken;
+        }
+        
+        // 显示解析结果
+        let resultHtml = '<div style="color: var(--success);">✅ 解析成功！已自动填充以下字段：</div><ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.8rem;">';
+        
+        if (email) resultHtml += `<li>邮箱: ${email}</li>`;
+        if (accessToken) resultHtml += `<li>Access Token: ${accessToken.substring(0, 20)}...</li>`;
+        if (sessionToken) resultHtml += `<li>Session Token: ${sessionToken.substring(0, 20)}...</li>`;
+        
+        if (!email && !accessToken && !sessionToken) {
+            resultHtml = '<div style="color: var(--warning);">⚠️ 未找到有效的字段，请检查 JSON 格式</div>';
+        }
+        
+        resultHtml += '</ul>';
+        resultDiv.innerHTML = resultHtml;
+        
+        // 清空输入框
+        jsonInput.value = '';
+        
+        showToast('JSON 解析完成，字段已自动填充', 'success');
+        
+    } catch (error) {
+        resultDiv.innerHTML = `<div style="color: var(--danger);">❌ JSON 解析失败: ${error.message}</div>`;
+        showToast('JSON 格式错误，请检查数据', 'error');
+    }
+}
+
+function openOfficialAPI() {
+    window.open('https://chatgpt.com/api/auth/session', '_blank', 'noopener');
+    showToast('已打开 ChatGPT API 页面，请复制返回的 JSON 数据', 'info');
+}
+
+function clearAllFields() {
+    const form = document.getElementById('singleImportForm');
+    const jsonInput = document.getElementById('jsonParseInput');
+    const resultDiv = document.getElementById('parseResult');
+    
+    if (form) form.reset();
+    if (jsonInput) jsonInput.value = '';
+    if (resultDiv) resultDiv.innerHTML = '';
+    
+    showToast('所有字段已清空', 'info');
+}
+
 // === Team 导入逻辑 ===
 
 async function handleSingleImport(event) {
@@ -183,6 +258,16 @@ async function handleSingleImport(event) {
     const accountId = form.accountId.value.trim();
     const submitButton = form.querySelector('button[type="submit"]');
 
+    if (!accessToken && !sessionToken && !refreshToken) {
+        showToast('请至少填写 AT 或 ST；如果只填 RT，还需要同时填写 Client ID', 'error');
+        return;
+    }
+
+    if (refreshToken && !clientId) {
+        showToast('填写了 RT 时，请同时填写 Client ID', 'error');
+        return;
+    }
+
     submitButton.disabled = true;
     submitButton.textContent = '导入中...';
 
@@ -191,7 +276,7 @@ async function handleSingleImport(event) {
             method: 'POST',
             body: JSON.stringify({
                 import_type: 'single',
-                access_token: accessToken,
+                access_token: accessToken || null,
                 refresh_token: refreshToken || null,
                 session_token: sessionToken || null,
                 client_id: clientId || null,

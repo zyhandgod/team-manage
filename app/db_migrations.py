@@ -106,6 +106,12 @@ def run_auto_migration():
             logger.info("添加 teams.device_code_auth_enabled 字段")
             cursor.execute("ALTER TABLE teams ADD COLUMN device_code_auth_enabled BOOLEAN DEFAULT 0")
             migrations_applied.append("teams.device_code_auth_enabled")
+
+        # 将历史 Team 的默认上限从 6 调整为 5
+        cursor.execute("UPDATE teams SET max_members = 5 WHERE max_members = 6")
+        if cursor.rowcount > 0:
+            logger.info(f"已将 {cursor.rowcount} 条 Team 记录的最大成员数从 6 调整为 5")
+            migrations_applied.append("teams.max_members_default_to_5")
         
         # 提交更改
         conn.commit()

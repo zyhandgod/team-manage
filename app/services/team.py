@@ -143,6 +143,36 @@ class TeamService:
         if not db_session.in_transaction():
             await db_session.commit()
 
+    async def _fetch_device_code_auth_status(
+        self,
+        access_token: str,
+        account_id: str,
+        db_session: AsyncSession,
+        identifier: str
+    ) -> Dict[str, Any]:
+        """
+        获取 Team 的设备代码身份验证状态
+        """
+        settings_result = await self.chatgpt_service.get_account_settings(
+            access_token,
+            account_id,
+            db_session,
+            identifier=identifier
+        )
+        if not settings_result["success"]:
+            return {
+                "success": False,
+                "enabled": None,
+                "error": settings_result.get("error", "获取账户设置失败")
+            }
+
+        beta_settings = settings_result["data"].get("beta_settings", {})
+        return {
+            "success": True,
+            "enabled": beta_settings.get("codex_device_code_auth", False),
+            "error": None
+        }
+
     async def ensure_access_token(self, team: Team, db_session: AsyncSession, force_refresh: bool = False) -> Optional[str]:
         """
         确保 AT Token 有效,如果过期则尝试刷新
@@ -937,6 +967,16 @@ class TeamService:
                     "error": "该 Token 没有关联任何 Team 账户"
                 }
 
+            # 4.5 优先同步设备代码认证开关，避免后续其它接口失败时状态长期不准确
+            device_auth_result = await self._fetch_device_code_auth_status(
+                access_token,
+                current_account["account_id"],
+                db_session,
+                identifier=team.email
+            )
+            if device_auth_result["success"]:
+                team.device_code_auth_enabled = device_auth_result["enabled"]
+
             # 5. 获取成员列表 (包含已加入和待加入)
             members_result = await self.chatgpt_service.get_members(
                 access_token,
@@ -1002,17 +1042,9 @@ class TeamService:
                 except Exception as e:
                     logger.warning(f"解析过期时间失败: {e}")
 
-            # 7.5 获取账户设置 (包含 beta_settings)
-            settings_result = await self.chatgpt_service.get_account_settings(
-                access_token,
-                current_account["account_id"],
-                db_session,
-                identifier=team.email
-            )
             device_code_auth_enabled = team.device_code_auth_enabled
-            if settings_result["success"]:
-                beta_settings = settings_result["data"].get("beta_settings", {})
-                device_code_auth_enabled = beta_settings.get("codex_device_code_auth", False)
+            if device_auth_result["success"]:
+                device_code_auth_enabled = device_auth_result["enabled"]
 
             # 7. 确定状态
             status = "active"
@@ -1598,6 +1630,18 @@ class TeamService:
             if not access_token:
                 return {"success": False, "error": "Token 已过期且无法刷新"}
 
+            # 2.5 先读一次远端状态，避免“已经开启”时重复误报
+            current_status = await self._fetch_device_code_auth_status(
+                access_token,
+                team.account_id,
+                db_session,
+                identifier=team.email
+            )
+            if current_status["success"] and current_status["enabled"]:
+                team.device_code_auth_enabled = True
+                await db_session.commit()
+                return {"success": True, "message": "设备代码身份验证已处于开启状态"}
+
             # 3. 调用 ChatGPT API 开启功能
             result = await self.chatgpt_service.toggle_beta_feature(
                 access_token,
@@ -1611,12 +1655,35 @@ class TeamService:
             if not result["success"]:
                 return {"success": False, "error": f"开启设备身份验证失败: {result.get('error', '未知错误')}"}
 
-            # 更新数据库状态
-            team.device_code_auth_enabled = True
-            await db_session.commit()
+            # 4. 回读远端状态，避免把“请求成功”误判成“功能已生效”
+            verify_error = None
+            for attempt in range(3):
+                verify_result = await self._fetch_device_code_auth_status(
+                    access_token,
+                    team.account_id,
+                    db_session,
+                    identifier=team.email
+                )
+                if verify_result["success"]:
+                    team.device_code_auth_enabled = verify_result["enabled"]
+                    await db_session.commit()
+                    if verify_result["enabled"]:
+                        logger.info(f"Team {team_id} ({team.email}) 开启设备身份验证成功")
+                        return {"success": True, "message": "设备代码身份验证开启成功"}
+                    verify_error = "远端返回成功，但设备代码身份验证状态仍未开启"
+                else:
+                    verify_error = verify_result["error"]
 
-            logger.info(f"Team {team_id} ({team.email}) 开启设备身份验证成功")
-            return {"success": True, "message": "设备代码身份验证开启成功"}
+                if attempt < 2:
+                    await asyncio.sleep(1)
+
+            logger.warning(
+                "Team %s (%s) 开启设备身份验证后校验未通过: %s",
+                team_id,
+                team.email,
+                verify_error
+            )
+            return {"success": False, "error": verify_error or "开启后无法确认远端状态"}
 
         except Exception as e:
             logger.error(f"开启设备身份验证失败: {e}")

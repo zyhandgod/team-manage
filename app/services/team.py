@@ -436,16 +436,27 @@ class TeamService:
                     selected_account["account_id"],
                     db_session
                 )
-                
+                if not members_result["success"]:
+                    return {
+                        "success": False,
+                        "team_id": None,
+                        "email": email,
+                        "message": None,
+                        "error": f"Failed to fetch members during import: {members_result['error']}"
+                    }
+
                 invites_result = await self.chatgpt_service.get_invites(
                     access_token,
                     selected_account["account_id"],
                     db_session
                 )
+                if not invites_result["success"]:
+                    logger.warning(
+                        "Invite fetch failed during import; pending invites will be excluded from the seat count: %s",
+                        invites_result["error"]
+                    )
 
-                current_members = 0
-                if members_result["success"]:
-                    current_members += members_result["total"]
+                current_members = members_result["total"]
                 if invites_result["success"]:
                     current_members += invites_result["total"]
 
@@ -967,7 +978,7 @@ class TeamService:
                     "error": "该 Token 没有关联任何 Team 账户"
                 }
 
-            # 4.5 优先同步设备代码认证开关，避免后续其它接口失败时状态长期不准确
+            # Sync device-code auth status early so local state does not drift
             device_auth_result = await self._fetch_device_code_auth_status(
                 access_token,
                 current_account["account_id"],
@@ -977,60 +988,50 @@ class TeamService:
             if device_auth_result["success"]:
                 team.device_code_auth_enabled = device_auth_result["enabled"]
 
-            # 5. 获取成员列表 (包含已加入和待加入)
             members_result = await self.chatgpt_service.get_members(
                 access_token,
                 current_account["account_id"],
                 db_session,
                 identifier=team.email
             )
-            
+            if not members_result["success"]:
+                error_msg = members_result.get("error", "Unknown error")
+                if members_result.get("error_code") == "account_deactivated":
+                    error_msg = "Account deactivated (account_deactivated)"
+                elif members_result.get("error_code") == "token_invalidated":
+                    error_msg = "Token invalidated (token_invalidated)"
+
+                await self._handle_api_error(members_result, team, db_session)
+                return {
+                    "success": False,
+                    "message": None,
+                    "error": error_msg
+                }
+
             invites_result = await self.chatgpt_service.get_invites(
                 access_token,
                 current_account["account_id"],
                 db_session,
                 identifier=team.email
             )
+            if not invites_result["success"]:
+                logger.warning(
+                    "Invite fetch failed while syncing Team %s; pending invites will be excluded from the seat count: %s",
+                    team.id,
+                    invites_result.get("error", "Unknown error")
+                )
 
             all_member_emails = set()
-            current_members = 0
-            if members_result["success"]:
-                current_members += members_result["total"]
-                for m in members_result.get("members", []):
-                    if m.get("email"):
-                        all_member_emails.add(m["email"].lower())
-            
+            current_members = members_result["total"]
+            for m in members_result.get("members", []):
+                if m.get("email"):
+                    all_member_emails.add(m["email"].lower())
+
             if invites_result["success"]:
                 current_members += invites_result["total"]
                 for inv in invites_result.get("items", []):
                     if inv.get("email_address"):
                         all_member_emails.add(inv["email_address"].lower())
-            else:
-                # 检查是否封号或 Token 失效
-                if await self._handle_api_error(invites_result, team, db_session):
-                    error_msg = invites_result.get("error", "未知错误")
-                    if invites_result.get("error_code") == "account_deactivated":
-                        error_msg = "账号已封禁 (account_deactivated)"
-                    elif invites_result.get("error_code") == "token_invalidated":
-                        error_msg = "账号已封禁/失效 (token_invalidated)"
-                        
-                    return {
-                        "success": False,
-                        "message": None,
-                        "error": error_msg
-                    }
-                
-                # 其他错误, 累加错误次数
-                team.error_count = (team.error_count or 0) + 1
-                if team.error_count >= 3:
-                    logger.error(f"Team {team.id} 获取成员列表连续失败 {team.error_count} 次，更新状态为 error")
-                    team.status = "error"
-                await db_session.commit()
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": f"获取成员列表失败: {members_result['error']} (错误次数: {team.error_count})"
-                }
 
             # 6. 解析过期时间
             expires_at = None

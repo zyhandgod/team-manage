@@ -54,6 +54,36 @@ class ChatGPTService:
         )
         return session
 
+    def _looks_like_cloudflare_challenge(self, text: str) -> bool:
+        """Detect Cloudflare challenge pages returned instead of JSON."""
+        lowered = (text or "").lower()
+        challenge_markers = (
+            "enable javascript and cookies to continue",
+            "/cdn-cgi/challenge-platform/",
+            "__cf_chl_",
+            "cf challenge",
+        )
+        return any(marker in lowered for marker in challenge_markers)
+
+    def _should_fallback_to_httpx(self, error: Exception) -> bool:
+        """Only fall back to httpx when curl_cffi hits a transport issue."""
+        message = str(error).lower()
+        transport_markers = (
+            "failed to connect",
+            "could not connect",
+            "connection was reset",
+            "connection reset",
+            "connection refused",
+            "recv failure",
+            "timed out",
+            "timeout",
+            "tls connect error",
+            "ssl connect error",
+            "proxy",
+            "network is unreachable",
+        )
+        return any(marker in message for marker in transport_markers)
+
     async def _make_httpx_request(
         self,
         method: str,
@@ -63,8 +93,7 @@ class ChatGPTService:
         db_session: Optional[DBAsyncSession] = None
     ) -> Dict[str, Any]:
         """
-        当启用代理时，使用 httpx 走标准代理链路，绕开 curl_cffi 在部分
-        Linux + proxy 场景下的 TLS 握手兼容问题。
+        Fall back to httpx only when curl_cffi fails at the transport layer.
         """
         proxy = await self._get_proxy_config(db_session) if db_session else None
         async with httpx.AsyncClient(
@@ -76,6 +105,15 @@ class ChatGPTService:
         ) as client:
             response = await client.request(method, url, headers=headers, json=json_data)
             status_code = response.status_code
+            raw_text = response.text
+
+            if self._looks_like_cloudflare_challenge(raw_text):
+                return {
+                    "success": False,
+                    "status_code": status_code or 403,
+                    "error": "Cloudflare challenge blocked the request",
+                    "error_code": "cloudflare_challenge",
+                }
 
             if 200 <= status_code < 300:
                 try:
@@ -85,7 +123,7 @@ class ChatGPTService:
                 return {"success": True, "status_code": status_code, "data": data, "error": None}
 
             if 400 <= status_code < 500:
-                error_msg = response.text
+                error_msg = raw_text
                 error_code = None
                 try:
                     error_data = response.json()
@@ -98,7 +136,7 @@ class ChatGPTService:
                     pass
                 return {"success": False, "status_code": status_code, "error": error_msg, "error_code": error_code}
 
-            return {"success": False, "status_code": status_code, "error": f"服务器错误 {status_code}"}
+            return {"success": False, "status_code": status_code, "error": f"Server error: {status_code}"}
 
     async def _get_session(self, db_session: DBAsyncSession, identifier: str) -> AsyncSession:
         """
@@ -119,15 +157,12 @@ class ChatGPTService:
         identifier: str = "default"
     ) -> Dict[str, Any]:
         """
-        发送 HTTP 请求 (使用持久化隔离会话，提高 CF 通过率并防止污染)
+        Send HTTP requests with curl_cffi first and fall back to httpx only for transport failures.
         """
-        # 尝试从 Header 或 Token 自动提取标识符，确保身份绝对隔离
         if identifier == "default":
-            # 优先从账号 ID 识别，这对 Team 邀请等操作最重要
             acc_id = headers.get("chatgpt-account-id")
             if acc_id:
                 identifier = f"acc_{acc_id}"
-            # 其次从 Token 解析邮箱
             elif "Authorization" in headers:
                 token = headers["Authorization"].replace("Bearer ", "")
                 email = self.jwt_parser.extract_email(token)
@@ -135,8 +170,7 @@ class ChatGPTService:
                     identifier = email
 
         session = await self._get_session(db_session, identifier)
-        
-        # 补全基础浏览器请求头
+
         base_headers = {
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
@@ -144,29 +178,17 @@ class ChatGPTService:
             "Origin": "https://chatgpt.com",
             "Connection": "keep-alive"
         }
-        # 合并请求头，不要轻易覆盖 User-Agent 以免破坏 impersonate 的指纹
         for k, v in base_headers.items():
             if k not in headers:
                 headers[k] = v
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                # 随机微小延迟，模拟真实用户行为
                 if attempt > 0:
-                    delay = self.RETRY_DELAYS[attempt-1] + random.uniform(0.5, 1.5)
+                    delay = self.RETRY_DELAYS[attempt - 1] + random.uniform(0.5, 1.5)
                     await asyncio.sleep(delay)
 
-                logger.info(f"[{identifier}] 发送请求: {method} {url} (尝试 {attempt + 1})")
-
-                proxy = await self._get_proxy_config(db_session) if db_session else None
-                if proxy:
-                    return await self._make_httpx_request(
-                        method,
-                        url,
-                        headers,
-                        json_data=json_data,
-                        db_session=db_session
-                    )
+                logger.info(f"[{identifier}] Sending request: {method} {url} (attempt {attempt + 1})")
 
                 if method == "GET":
                     response = await session.get(url, headers=headers)
@@ -175,10 +197,20 @@ class ChatGPTService:
                 elif method == "DELETE":
                     response = await session.delete(url, headers=headers, json=json_data)
                 else:
-                    raise ValueError(f"不支持的 HTTP 方法: {method}")
+                    raise ValueError(f"Unsupported HTTP method: {method}")
 
                 status_code = response.status_code
-                logger.info(f"响应状态码: {status_code}")
+                raw_text = response.text
+                logger.info(f"Response status code: {status_code}")
+
+                if self._looks_like_cloudflare_challenge(raw_text):
+                    logger.warning(f"[{identifier}] Cloudflare challenge blocked request: {url}")
+                    return {
+                        "success": False,
+                        "status_code": status_code or 403,
+                        "error": "Cloudflare challenge blocked the request",
+                        "error_code": "cloudflare_challenge",
+                    }
 
                 if 200 <= status_code < 300:
                     try:
@@ -188,38 +220,53 @@ class ChatGPTService:
                     return {"success": True, "status_code": status_code, "data": data, "error": None}
 
                 if 400 <= status_code < 500:
-                    error_msg = response.text
+                    error_msg = raw_text
                     error_code = None
                     try:
                         error_data = response.json()
                         detail = error_data.get("detail", error_msg)
-                        # 确保 error_msg 是字符串，避免前端显示 [object Object]
                         error_msg = str(detail) if not isinstance(detail, str) else detail
                         if isinstance(error_data, dict):
                             error_info = error_data.get("error")
                             error_code = error_info.get("code") if isinstance(error_info, dict) else error_data.get("code")
                     except Exception:
                         pass
-                    
+
                     if error_code == "token_invalidated" or "token_invalidated" in str(error_msg).lower():
-                        logger.warning(f"检测到 Token 失效，清理会话缓存: {identifier}")
+                        logger.warning(f"Detected invalidated token, clearing cached session: {identifier}")
                         await self.clear_session(identifier)
-                    
-                    logger.warning(f"客户端错误 {status_code}: {error_msg}")
+
+                    logger.warning(f"Client error {status_code}: {error_msg}")
                     return {"success": False, "status_code": status_code, "error": error_msg, "error_code": error_code}
 
                 if status_code >= 500:
                     if attempt < self.MAX_RETRIES - 1:
                         continue
-                    return {"success": False, "status_code": status_code, "error": f"服务器错误 {status_code}"}
+                    return {"success": False, "status_code": status_code, "error": f"Server error: {status_code}"}
 
             except Exception as e:
-                logger.error(f"请求异常: {e}")
+                logger.error(f"Request error: {e}")
+                proxy = await self._get_proxy_config(db_session) if db_session else None
+                if proxy and self._should_fallback_to_httpx(e):
+                    logger.warning(f"[{identifier}] curl_cffi transport failed, falling back to httpx: {e}")
+                    try:
+                        return await self._make_httpx_request(
+                            method,
+                            url,
+                            headers,
+                            json_data=json_data,
+                            db_session=db_session,
+                        )
+                    except Exception as fallback_error:
+                        logger.error(f"httpx fallback failed: {fallback_error}")
+                        if attempt < self.MAX_RETRIES - 1:
+                            continue
+                        return {"success": False, "status_code": 0, "error": str(fallback_error)}
                 if attempt < self.MAX_RETRIES - 1:
                     continue
                 return {"success": False, "status_code": 0, "error": str(e)}
 
-        return {"success": False, "status_code": 0, "error": "未知错误"}
+        return {"success": False, "status_code": 0, "error": "Unknown error"}
 
     async def send_invite(
         self,
@@ -255,7 +302,7 @@ class ChatGPTService:
             headers = {"Authorization": f"Bearer {access_token}"}
             result = await self._make_request("GET", url, headers, db_session=db_session, identifier=identifier)
             if not result["success"]:
-                return {"success": False, "members": [], "total": 0, "error": result["error"]}
+                return {"success": False, "members": [], "total": 0, "error": result["error"], "error_code": result.get("error_code")}
             data = result["data"]
             items = data.get("items", [])
             total = data.get("total", 0)
@@ -280,7 +327,7 @@ class ChatGPTService:
         }
         result = await self._make_request("GET", url, headers, db_session=db_session, identifier=identifier)
         if not result["success"]:
-            return {"success": False, "items": [], "total": 0, "error": result["error"]}
+            return {"success": False, "items": [], "total": 0, "error": result["error"], "error_code": result.get("error_code")}
         data = result["data"]
         items = data.get("items", [])
         return {"success": True, "items": items, "total": len(items), "error": None}
@@ -352,7 +399,7 @@ class ChatGPTService:
         headers = {"Authorization": f"Bearer {access_token}"}
         result = await self._make_request("GET", url, headers, db_session=db_session, identifier=identifier)
         if not result["success"]:
-            return {"success": False, "accounts": [], "error": result["error"]}
+            return {"success": False, "accounts": [], "error": result["error"], "error_code": result.get("error_code")}
         
         data = result["data"]
         accounts_data = data.get("accounts", {})

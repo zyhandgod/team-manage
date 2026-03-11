@@ -7,6 +7,7 @@ import logging
 import random
 from typing import Optional, Dict, Any, List
 from curl_cffi.requests import AsyncSession
+import httpx
 from app.services.settings import settings_service
 from sqlalchemy.ext.asyncio import AsyncSession as DBAsyncSession
 from app.utils.jwt_parser import JWTParser
@@ -52,6 +53,52 @@ class ChatGPTService:
             verify=False # 某些代理环境下需要，或根据需求开启
         )
         return session
+
+    async def _make_httpx_request(
+        self,
+        method: str,
+        url: str,
+        headers: Dict[str, str],
+        json_data: Optional[Dict[str, Any]] = None,
+        db_session: Optional[DBAsyncSession] = None
+    ) -> Dict[str, Any]:
+        """
+        当启用代理时，使用 httpx 走标准代理链路，绕开 curl_cffi 在部分
+        Linux + proxy 场景下的 TLS 握手兼容问题。
+        """
+        proxy = await self._get_proxy_config(db_session) if db_session else None
+        async with httpx.AsyncClient(
+            proxy=proxy,
+            timeout=30,
+            verify=False,
+            trust_env=False,
+            follow_redirects=True
+        ) as client:
+            response = await client.request(method, url, headers=headers, json=json_data)
+            status_code = response.status_code
+
+            if 200 <= status_code < 300:
+                try:
+                    data = response.json()
+                except Exception:
+                    data = {}
+                return {"success": True, "status_code": status_code, "data": data, "error": None}
+
+            if 400 <= status_code < 500:
+                error_msg = response.text
+                error_code = None
+                try:
+                    error_data = response.json()
+                    detail = error_data.get("detail", error_msg)
+                    error_msg = str(detail) if not isinstance(detail, str) else detail
+                    if isinstance(error_data, dict):
+                        error_info = error_data.get("error")
+                        error_code = error_info.get("code") if isinstance(error_info, dict) else error_data.get("code")
+                except Exception:
+                    pass
+                return {"success": False, "status_code": status_code, "error": error_msg, "error_code": error_code}
+
+            return {"success": False, "status_code": status_code, "error": f"服务器错误 {status_code}"}
 
     async def _get_session(self, db_session: DBAsyncSession, identifier: str) -> AsyncSession:
         """
@@ -110,6 +157,16 @@ class ChatGPTService:
                     await asyncio.sleep(delay)
 
                 logger.info(f"[{identifier}] 发送请求: {method} {url} (尝试 {attempt + 1})")
+
+                proxy = await self._get_proxy_config(db_session) if db_session else None
+                if proxy:
+                    return await self._make_httpx_request(
+                        method,
+                        url,
+                        headers,
+                        json_data=json_data,
+                        db_session=db_session
+                    )
 
                 if method == "GET":
                     response = await session.get(url, headers=headers)
@@ -356,8 +413,19 @@ class ChatGPTService:
             # 手动合并基础头
             headers["Referer"] = "https://chatgpt.com/"
             headers["Connection"] = "keep-alive"
-            
-            response = await session.get(url, headers=headers)
+
+            proxy = await self._get_proxy_config(db_session)
+            if proxy:
+                async with httpx.AsyncClient(
+                    proxy=proxy,
+                    timeout=30,
+                    verify=False,
+                    trust_env=False,
+                    follow_redirects=True
+                ) as client:
+                    response = await client.get(url, headers=headers)
+            else:
+                response = await session.get(url, headers=headers)
             if response.status_code == 200:
                 try:
                     data = response.json()

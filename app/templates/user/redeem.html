@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPT Team 兑换</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/user.css') }}?v=20260310d">
+    <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/user.css') }}?v=20260310d">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
@@ -70,7 +70,7 @@
     <!-- Toast提示 -->
     <div id="toast" class="toast"></div>
 
-    <script src="{{ url_for('static', path='/js/redeem.js') }}?v=20260311a"></script>
+    <script src="{{ request.app.url_path_for('static', path='js/redeem.js') }}?v=20260311a"></script>
     <script>
         if (window.lucide) lucide.createIcons();
     </script>

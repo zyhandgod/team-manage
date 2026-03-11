@@ -216,6 +216,17 @@ function parseAndFillJSON() {
     
     try {
         const data = JSON.parse(jsonText);
+
+        // 优先从 auth/session 的 account.id 提取，拿不到时再从 JWT 里兜底解析
+        let accountId = data.account?.id || data.accountId || '';
+        if (!accountId && data.accessToken) {
+            try {
+                const payload = JSON.parse(atob(data.accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+                accountId = payload?.["https://api.openai.com/auth"]?.chatgpt_account_id || '';
+            } catch (e) {
+                accountId = '';
+            }
+        }
         
         // 提取各种字段
         const email = data.user?.email || '';
@@ -228,6 +239,7 @@ function parseAndFillJSON() {
             if (email) form.email.value = email;
             if (accessToken) form.accessToken.value = accessToken;
             if (sessionToken) form.sessionToken.value = sessionToken;
+            if (accountId && form.accountId) form.accountId.value = accountId;
         }
         
         // 显示解析结果
@@ -236,8 +248,9 @@ function parseAndFillJSON() {
         if (email) resultHtml += `<li>邮箱: ${email}</li>`;
         if (accessToken) resultHtml += `<li>Access Token: ${accessToken.substring(0, 20)}...</li>`;
         if (sessionToken) resultHtml += `<li>Session Token: ${sessionToken.substring(0, 20)}...</li>`;
+        if (accountId) resultHtml += `<li>Account ID: ${accountId}</li>`;
         
-        if (!email && !accessToken && !sessionToken) {
+        if (!email && !accessToken && !sessionToken && !accountId) {
             resultHtml = '<div style="color: var(--warning);">⚠️ 未找到有效的字段，请检查 JSON 格式</div>';
         }
         

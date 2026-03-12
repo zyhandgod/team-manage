@@ -31,6 +31,15 @@ function isAdminPath(pathname) {
 
 // Toast 提示函数
 function showToast(message, type = 'info') {
+    if (window.__antdMessageApi?.open) {
+        window.__antdMessageApi.open({
+            type: type === 'error' ? 'error' : type === 'warning' ? 'warning' : type === 'success' ? 'success' : 'info',
+            content: message,
+            duration: type === 'error' ? 3.5 : 2.5
+        });
+        return;
+    }
+
     const toast = document.getElementById('toast');
     if (!toast) return;
 
@@ -65,8 +74,13 @@ function formatDateTime(dateString) {
 }
 
 // 登出函数
-async function logout() {
-    if (!confirm('确定要登出吗?')) {
+async function logout(triggerEl = null) {
+    if (!await confirmAction({
+        title: '登出',
+        content: '确定要登出吗？',
+        okText: '确认登出',
+        triggerEl
+    })) {
         return;
     }
 
@@ -114,8 +128,41 @@ async function apiCall(url, options = {}) {
 }
 
 // 确认对话框
-function confirmAction(message) {
-    return confirm(message);
+function normalizeConfirmOptions(options) {
+    if (typeof options === 'string') {
+        return {
+            title: '确认操作',
+            content: options,
+            okText: '确定',
+            cancelText: '取消',
+            danger: false,
+            triggerEl: null
+        };
+    }
+
+    return {
+        title: options?.title || '确认操作',
+        content: options?.content || '',
+        okText: options?.okText || '确定',
+        cancelText: options?.cancelText || '取消',
+        danger: Boolean(options?.danger),
+        triggerEl: options?.triggerEl || null
+    };
+}
+
+async function confirmAction(options) {
+    const normalized = normalizeConfirmOptions(options);
+
+    if (typeof window.__openAntdConfirm === 'function') {
+        try {
+            return await window.__openAntdConfirm(normalized);
+        } catch (error) {
+            console.error('AntD confirm 调用失败，回退到原生 confirm:', error);
+        }
+    }
+
+    const fallbackMessage = normalized.content || normalized.title;
+    return confirm(fallbackMessage);
 }
 
 // 页面加载完成后执行
@@ -146,11 +193,37 @@ async function checkAuthStatus() {
 
 // === 模态框控制逻辑 ===
 
+function setBodyScrollLock(locked) {
+    const body = document.body;
+    if (!body) return;
+
+    if (locked) {
+        if (body.dataset.modalLockOverflow === undefined) {
+            body.dataset.modalLockOverflow = body.style.overflow || '';
+        }
+        if (body.dataset.modalLockPaddingRight === undefined) {
+            body.dataset.modalLockPaddingRight = body.style.paddingRight || '';
+        }
+
+        const scrollbarWidth = Math.max(window.innerWidth - document.documentElement.clientWidth, 0);
+        body.style.overflow = 'hidden';
+        body.style.paddingRight = scrollbarWidth > 0
+            ? `${scrollbarWidth}px`
+            : (body.dataset.modalLockPaddingRight || '');
+        return;
+    }
+
+    body.style.overflow = body.dataset.modalLockOverflow || '';
+    body.style.paddingRight = body.dataset.modalLockPaddingRight || '';
+    delete body.dataset.modalLockOverflow;
+    delete body.dataset.modalLockPaddingRight;
+}
+
 function showModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
         modal.classList.add('show');
-        document.body.style.overflow = 'hidden'; // 防止背景滚动
+        setBodyScrollLock(true);
     }
 }
 
@@ -158,7 +231,8 @@ function hideModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
         modal.classList.remove('show');
-        document.body.style.overflow = '';
+        const hasVisibleModal = document.querySelector('.modal-overlay.show');
+        setBodyScrollLock(Boolean(hasVisibleModal));
 
         if (modalId === 'manageMembersModal') {
             clearManageMembersRefreshTimers();
@@ -177,6 +251,68 @@ function hideModal(modalId) {
             }
         }
     }
+}
+
+function getTopVisibleModal() {
+    const visibleModals = Array.from(document.querySelectorAll('.modal-overlay.show'));
+    return visibleModals.length ? visibleModals[visibleModals.length - 1] : null;
+}
+
+document.addEventListener('click', event => {
+    const modalOverlay = event.target.closest('.modal-overlay.show');
+    if (!modalOverlay || event.target !== modalOverlay || !modalOverlay.id) {
+        return;
+    }
+
+    hideModal(modalOverlay.id);
+});
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') {
+        return;
+    }
+
+    const topModal = getTopVisibleModal();
+    if (!topModal || !topModal.id) {
+        return;
+    }
+
+    event.preventDefault();
+    hideModal(topModal.id);
+});
+
+function updateDashboardStats(stats) {
+    if (!stats) return;
+
+    Object.entries(stats).forEach(([key, value]) => {
+        const element = document.querySelector(`[data-stat-key="${key}"]`);
+        if (element) {
+            element.textContent = value ?? 0;
+        }
+    });
+
+    window.__dashboardStats = stats;
+}
+
+async function refreshDashboardStats() {
+    const result = await apiCall(adminUrl('/dashboard/stats'));
+    if (result.success && result.data.stats) {
+        updateDashboardStats(result.data.stats);
+    }
+}
+
+function syncTeamToVisibleTable(team) {
+    updateTeamListRow(team);
+    window.__teamListBridge?.upsertTeam?.(team);
+}
+
+function removeTeamFromVisibleTable(teamId) {
+    const row = document.querySelector(`tr[data-team-id="${teamId}"]`);
+    if (row) {
+        row.remove();
+    }
+
+    window.__teamListBridge?.removeTeam?.(Number(teamId));
 }
 
 function switchModalTab(modalId, tabId) {
@@ -202,6 +338,13 @@ function switchModalTab(modalId, tabId) {
             panel.style.display = 'none';
         }
     });
+
+    if (modalId === 'importTeamModal') {
+        const parseEntryBtn = document.getElementById('importParseEntryBtn');
+        if (parseEntryBtn) {
+            parseEntryBtn.style.display = tabId === 'singleImport' ? 'inline-flex' : 'none';
+        }
+    }
 }
 
 /**
@@ -216,72 +359,125 @@ function toggleWarrantyDays(checkbox, targetId) {
 
 // === JSON 解析功能 ===
 
-function parseAndFillJSON() {
-    const jsonInput = document.getElementById('jsonParseInput');
-    const resultDiv = document.getElementById('parseResult');
-    
+function extractSessionJsonFields(data) {
+    let accountId = data.account?.id || data.accountId || '';
+    if (!accountId && data.accessToken) {
+        try {
+            const payload = JSON.parse(atob(data.accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+            accountId = payload?.["https://api.openai.com/auth"]?.chatgpt_account_id || '';
+        } catch (e) {
+            accountId = '';
+        }
+    }
+
+    return {
+        email: data.user?.email || '',
+        accessToken: data.accessToken || '',
+        sessionToken: data.sessionToken || '',
+        accountId
+    };
+}
+
+function buildParseResultHtml(fields) {
+    let resultHtml = '<div style="color: var(--success);">✅ 解析成功！已自动填充以下字段：</div><ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.8rem;">';
+
+    if (fields.email) resultHtml += `<li>邮箱: ${fields.email}</li>`;
+    if (fields.accessToken) resultHtml += `<li>Access Token: ${fields.accessToken.substring(0, 20)}...</li>`;
+    if (fields.sessionToken) resultHtml += `<li>Session Token: ${fields.sessionToken.substring(0, 20)}...</li>`;
+    if (fields.accountId) resultHtml += `<li>Account ID: ${fields.accountId}</li>`;
+
+    if (!fields.email && !fields.accessToken && !fields.sessionToken && !fields.accountId) {
+        return '<div style="color: var(--warning);">⚠️ 未找到有效的字段，请检查 JSON 格式</div>';
+    }
+
+    return `${resultHtml}</ul>`;
+}
+
+function parseSessionJsonIntoForm({
+    inputId,
+    resultId,
+    formId,
+    fieldMap,
+    successMessage
+}) {
+    const jsonInput = document.getElementById(inputId);
+    const resultDiv = document.getElementById(resultId);
+
     if (!jsonInput || !resultDiv) {
         showToast('找不到解析输入框', 'error');
-        return;
+        return false;
     }
-    
+
     const jsonText = jsonInput.value.trim();
     if (!jsonText) {
         showToast('请先粘贴 JSON 数据', 'error');
-        return;
+        return false;
     }
-    
+
     try {
         const data = JSON.parse(jsonText);
+        const fields = extractSessionJsonFields(data);
+        const form = document.getElementById(formId);
 
-        // 优先从 auth/session 的 account.id 提取，拿不到时再从 JWT 里兜底解析
-        let accountId = data.account?.id || data.accountId || '';
-        if (!accountId && data.accessToken) {
-            try {
-                const payload = JSON.parse(atob(data.accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-                accountId = payload?.["https://api.openai.com/auth"]?.chatgpt_account_id || '';
-            } catch (e) {
-                accountId = '';
-            }
-        }
-        
-        // 提取各种字段
-        const email = data.user?.email || '';
-        const accessToken = data.accessToken || '';
-        const sessionToken = data.sessionToken || '';
-        
-        // 填充表单字段
-        const form = document.getElementById('singleImportForm');
         if (form) {
-            if (email) form.email.value = email;
-            if (accessToken) form.accessToken.value = accessToken;
-            if (sessionToken) form.sessionToken.value = sessionToken;
-            if (accountId && form.accountId) form.accountId.value = accountId;
+            Object.entries(fieldMap).forEach(([fieldKey, inputName]) => {
+                const target = form[inputName] || document.getElementById(inputName);
+                const value = fields[fieldKey];
+                if (target && value) {
+                    target.value = value;
+                }
+            });
         }
-        
-        // 显示解析结果
-        let resultHtml = '<div style="color: var(--success);">✅ 解析成功！已自动填充以下字段：</div><ul style="margin: 0.5rem 0; padding-left: 1.5rem; font-size: 0.8rem;">';
-        
-        if (email) resultHtml += `<li>邮箱: ${email}</li>`;
-        if (accessToken) resultHtml += `<li>Access Token: ${accessToken.substring(0, 20)}...</li>`;
-        if (sessionToken) resultHtml += `<li>Session Token: ${sessionToken.substring(0, 20)}...</li>`;
-        if (accountId) resultHtml += `<li>Account ID: ${accountId}</li>`;
-        
-        if (!email && !accessToken && !sessionToken && !accountId) {
-            resultHtml = '<div style="color: var(--warning);">⚠️ 未找到有效的字段，请检查 JSON 格式</div>';
-        }
-        
-        resultHtml += '</ul>';
-        resultDiv.innerHTML = resultHtml;
-        
-        // 清空输入框
+
+        resultDiv.innerHTML = buildParseResultHtml(fields);
         jsonInput.value = '';
-        
-        showToast('JSON 解析完成，字段已自动填充', 'success');
-        
+
+        showToast(successMessage || 'JSON 解析完成，字段已自动填充', 'success');
+        return true;
     } catch (error) {
         resultDiv.innerHTML = `<div style="color: var(--danger);">❌ JSON 解析失败: ${error.message}</div>`;
         showToast('JSON 格式错误，请检查数据', 'error');
+        return false;
+    }
+}
+
+function parseAndFillJSON() {
+    const success = parseSessionJsonIntoForm({
+        inputId: 'jsonParseInput',
+        resultId: 'parseResult',
+        formId: 'singleImportForm',
+        fieldMap: {
+            email: 'email',
+            accessToken: 'accessToken',
+            sessionToken: 'sessionToken',
+            accountId: 'accountId'
+        },
+        successMessage: 'JSON 解析完成，字段已自动填充'
+    });
+
+    if (success) {
+        hideModal('importTeamParseModal');
+    }
+
+    return success;
+}
+
+function parseEditTeamJSON() {
+    const success = parseSessionJsonIntoForm({
+        inputId: 'editJsonParseInput',
+        resultId: 'editParseResult',
+        formId: 'editTeamForm',
+        fieldMap: {
+            email: 'edit-team-email',
+            accessToken: 'edit-team-token',
+            sessionToken: 'edit-team-session-token',
+            accountId: 'edit-team-account-id'
+        },
+        successMessage: '编辑表单已根据 JSON 自动填充'
+    });
+
+    if (success) {
+        hideModal('editTeamParseModal');
     }
 }
 
@@ -300,6 +496,18 @@ function clearAllFields() {
     if (resultDiv) resultDiv.innerHTML = '';
     
     showToast('所有字段已清空', 'info');
+}
+
+function clearEditTeamParseInput(showMessage = true) {
+    const jsonInput = document.getElementById('editJsonParseInput');
+    const resultDiv = document.getElementById('editParseResult');
+
+    if (jsonInput) jsonInput.value = '';
+    if (resultDiv) resultDiv.innerHTML = '';
+
+    if (showMessage) {
+        showToast('解析框已清空', 'info');
+    }
 }
 
 // === Team 导入逻辑 ===
@@ -720,7 +928,7 @@ function updateTeamListRow(team) {
 async function refreshTeamListRow(teamId) {
     const result = await apiCall(adminUrl(`/teams/${teamId}/info`));
     if (result.success && result.data.team) {
-        updateTeamListRow(result.data.team);
+        syncTeamToVisibleTable(result.data.team);
     }
 }
 
@@ -754,7 +962,7 @@ async function loadModalMemberList(teamId) {
                             <td>${formatDateTime(m.added_at)}</td>
                             <td style="text-align: right;">
                                 ${m.role !== 'account-owner' ? `
-                                    <button onclick="deleteMember('${teamId}', '${m.user_id}', '${m.email}', true)" class="btn btn-sm btn-danger">
+                                    <button onclick="deleteMember('${teamId}', '${m.user_id}', '${m.email}', true, this)" class="btn btn-sm btn-danger">
                                         <i data-lucide="trash-2"></i> 删除
                                     </button>
                                 ` : '<span class="text-muted">不可删除</span>'}
@@ -777,7 +985,7 @@ async function loadModalMemberList(teamId) {
                             </td>
                             <td>${formatDateTime(m.added_at)}</td>
                             <td style="text-align: right;">
-                                <button onclick="revokeInvite('${teamId}', '${m.email}', true)" class="btn btn-sm btn-warning">
+                                <button onclick="revokeInvite('${teamId}', '${m.email}', true, this)" class="btn btn-sm btn-warning">
                                     <i data-lucide="undo"></i> 撤回
                                 </button>
                             </td>
@@ -799,8 +1007,13 @@ async function loadModalMemberList(teamId) {
     }
 }
 
-async function revokeInvite(teamId, email, inModal = false) {
-    if (!confirm(`确定要撤回对 "${email}" 的邀请吗？`)) {
+async function revokeInvite(teamId, email, inModal = false, triggerEl = null) {
+    if (!await confirmAction({
+        title: '撤回邀请',
+        content: `确定要撤回对 "${email}" 的邀请吗？`,
+        okText: '确认撤回',
+        triggerEl
+    })) {
         return;
     }
 
@@ -875,8 +1088,14 @@ async function handleAddMember(event) {
     }
 }
 
-async function deleteMember(teamId, userId, email, inModal = false) {
-    if (!confirm(`确定要删除成员 "${email}" 吗?\n\n此操作不可恢复!`)) {
+async function deleteMember(teamId, userId, email, inModal = false, triggerEl = null) {
+    if (!await confirmAction({
+        title: '删除成员',
+        content: `确定要删除成员 "${email}" 吗？此操作不可恢复。`,
+        okText: '确认删除',
+        danger: true,
+        triggerEl
+    })) {
         return;
     }
 

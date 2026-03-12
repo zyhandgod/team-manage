@@ -1,0 +1,224 @@
+@import 'antd/dist/reset.css';
+
+#teamListIslandRoot {
+  margin-bottom: 0.75rem;
+}
+
+.team-list-island {
+  padding: 1rem 1.1rem;
+  border: 1px solid #d7deeb;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+
+.team-list-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.team-list-header-title h3 {
+  margin: 0;
+}
+
+.team-list-batch-actions {
+  padding-right: 8px;
+}
+
+.team-list-column-selector {
+  min-width: 180px;
+}
+
+.team-list-email-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.team-list-credential-cell {
+  display: grid;
+  gap: 6px;
+}
+
+.team-list-credential-note {
+  color: #8a94a7;
+  font-size: 12px;
+}
+
+.team-list-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.team-list-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 32px;
+}
+
+.team-list-modal-title-text {
+  min-width: 0;
+  font-weight: 600;
+}
+
+.team-list-modal-title-action {
+  flex-shrink: 0;
+}
+
+.team-list-modal-label {
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.team-list-progress-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #d7deeb;
+  border-radius: 14px;
+  background: #f8faff;
+}
+
+.team-list-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.team-list-modal-section {
+  display: grid;
+  gap: 12px;
+}
+
+.team-list-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.team-list-section-header h5 {
+  margin: 0;
+}
+
+.team-list-section-header-success h5 {
+  color: #18a058;
+}
+
+.team-list-section-header-warning h5 {
+  color: #f59e0b;
+}
+
+.team-list-members-title {
+  display: grid;
+  gap: 4px;
+}
+
+.team-list-modal-subtitle {
+  font-size: 13px;
+}
+
+.team-edit-modal-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 32px;
+}
+
+.team-edit-modal-title-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.team-edit-modal-title-text {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.team-edit-modal-subtitle {
+  font-size: 13px;
+}
+
+.team-edit-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.team-edit-overview-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #e4e9f4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f4f7ff 100%);
+}
+
+.team-edit-overview-label {
+  color: #8a94a7;
+  font-size: 12px;
+}
+
+.team-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+.team-edit-grid .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.team-edit-grid-span-2 {
+  grid-column: span 2;
+}
+
+.team-list-import-form .ant-form-item-extra {
+  color: #8a94a7;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ant-modal-footer {
+  position: sticky;
+  bottom: 0;
+  background: #ffffff;
+  z-index: 2;
+}
+
+@media (max-width: 960px) {
+  .team-list-header {
+    flex-direction: column;
+  }
+
+  .team-list-modal-title {
+    padding-right: 24px;
+  }
+
+  .team-edit-modal-title {
+    padding-right: 24px;
+  }
+
+  .team-edit-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .team-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .team-edit-grid-span-2 {
+    grid-column: auto;
+  }
+}

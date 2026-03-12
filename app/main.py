@@ -161,6 +161,17 @@ templates.env.globals["admin_base_path"] = settings.admin_base_path
 templates.env.globals["admin_login_path"] = settings.admin_login_path
 templates.env.globals["auth_api_prefix"] = settings.auth_route_prefix
 
+
+def static_asset(path: str) -> str:
+    """生成带版本号的静态资源路径，减少浏览器缓存影响。"""
+    asset_path = APP_DIR / "static" / path
+    version = ""
+    try:
+        version = f"?v={int(asset_path.stat().st_mtime)}"
+    except OSError:
+        version = ""
+    return f"/static/{path}{version}"
+
 # 添加模板过滤器
 def format_datetime(dt):
     """格式化日期时间"""
@@ -194,6 +205,7 @@ def escape_js(value):
 
 templates.env.filters["format_datetime"] = format_datetime
 templates.env.filters["escape_js"] = escape_js
+templates.env.globals["static_asset"] = static_asset
 
 # 配置日志
 logging.basicConfig(

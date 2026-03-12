@@ -83,6 +83,11 @@ body {
 }
 
 /* Layout */
+.admin-shell {
+    height: 100vh;
+    overflow: hidden;
+}
+
 .navbar {
     background-color: var(--bg-surface);
     border-bottom: 1px solid var(--border-base);
@@ -94,11 +99,17 @@ body {
     align-items: center;
 }
 
+.admin-shell .navbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+}
+
 .navbar-container {
-    max-width: 1440px;
+    max-width: none;
     width: 100%;
-    margin: 0 auto;
-    padding: 0 2rem;
+    margin: 0;
+    padding: 0 1.25rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -113,19 +124,32 @@ body {
 
 .main-container {
     display: flex;
-    max-width: 1440px;
-    margin: 0 auto;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+
+.admin-shell .main-container {
+    height: calc(100vh - 64px - 73px);
+    margin-top: 64px;
+    margin-bottom: 73px;
+    overflow: hidden;
 }
 
 .sidebar {
-    width: 260px;
+    width: 210px;
     flex-shrink: 0;
-    padding: 2rem 1.5rem;
+    padding: 1rem 0.9rem;
     border-right: 1px solid var(--border-base);
     height: calc(100vh - 64px);
     position: sticky;
     top: 64px;
     background-color: var(--bg-surface);
+}
+
+.admin-shell .sidebar {
+    height: 100%;
+    top: 0;
 }
 
 .sidebar-menu {
@@ -167,9 +191,15 @@ body {
     flex: 1;
     min-width: 0;
     /* Allow content to shrink and trigger scrolling */
-    padding: 2rem 3rem;
+    padding: 1.25rem 1.5rem;
     background-color: var(--bg-main);
     min-height: calc(100vh - 64px);
+}
+
+.admin-shell .main-content {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .footer {
@@ -179,6 +209,19 @@ body {
     font-size: 0.875rem;
     border-top: 1px solid var(--border-base);
     background-color: var(--bg-surface);
+}
+
+.admin-shell .footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    height: 73px;
+    padding: 0 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .footer-link {
@@ -198,9 +241,9 @@ body {
     background-color: var(--bg-surface);
     border: 1px solid var(--border-base);
     border-radius: var(--radius-lg);
-    padding: 1.5rem;
+    padding: 1rem 1.25rem;
     box-shadow: var(--shadow-sm);
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
     animation: fadeInUp var(--transition-base) forwards;
     position: relative;
     z-index: 1;
@@ -1135,21 +1178,22 @@ body {
 /* Stats */
 .stats-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
 }
 
 .stat-card {
     background-color: var(--bg-surface);
     border: 1px solid var(--border-base);
     border-radius: var(--radius-lg);
-    padding: 1.5rem;
+    padding: 0.9rem 1rem;
     display: flex;
     align-items: center;
-    gap: 1.25rem;
+    gap: 0.75rem;
     transition: var(--transition-base);
     box-shadow: var(--shadow-sm);
+    min-height: 84px;
 }
 
 .stat-card:hover {
@@ -1158,8 +1202,8 @@ body {
 }
 
 .stat-icon {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: var(--radius-md);
     background-color: var(--primary-soft);
     color: var(--primary);
@@ -1169,15 +1213,22 @@ body {
 }
 
 .stat-value {
-    font-size: 1.5rem;
+    font-size: 1.15rem;
     font-weight: 700;
     color: var(--text-main);
+    line-height: 1.1;
 }
 
 .stat-label {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     color: var(--text-muted);
     font-weight: 500;
+}
+
+.stat-info-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
 }
 
 /* Auth Pages */
@@ -1223,7 +1274,7 @@ body {
 /* Mobile Responsiveness */
 @media (max-width: 1024px) {
     .main-content {
-        padding: 1.5rem 2rem;
+        padding: 1rem 1.25rem;
     }
 }
 
@@ -1271,6 +1322,11 @@ body {
         height: 100vh;
     }
 
+    .admin-shell .main-container {
+        height: calc(100vh - 64px - 65px);
+        margin-bottom: 65px;
+    }
+
     .sidebar.open {
         transform: translateX(0);
     }
@@ -1296,6 +1352,11 @@ body {
 
     .main-content {
         padding: 1rem;
+    }
+
+    .admin-shell .footer {
+        height: 65px;
+        padding: 0 1rem;
     }
 
     .section-header {

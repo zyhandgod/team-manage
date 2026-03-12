@@ -4,7 +4,7 @@
 """
 import logging
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +30,48 @@ import json
 # 服务实例
 team_service = TeamService()
 redemption_service = RedemptionService()
+
+
+async def build_dashboard_payload(
+    db: AsyncSession,
+    page: int = 1,
+    per_page: int = 20,
+    search: Optional[str] = None,
+    status_filter: Optional[str] = None
+):
+    """构建控制台表格和顶部统计所需的统一数据结构。"""
+    teams_result = await team_service.get_all_teams(
+        db,
+        page=page,
+        per_page=per_page,
+        search=search,
+        status=status_filter
+    )
+    team_stats = await team_service.get_stats(db)
+    code_stats = await redemption_service.get_stats(db)
+
+    stats = {
+        "total_teams": team_stats["total"],
+        "available_teams": team_stats["available"],
+        "remaining_seats": team_stats["remaining_seats"],
+        "total_codes": code_stats["total"],
+        "used_codes": code_stats["used"]
+    }
+
+    pagination = {
+        "current_page": teams_result.get("current_page", page),
+        "total_pages": teams_result.get("total_pages", 1),
+        "total": teams_result.get("total", 0),
+        "per_page": per_page
+    }
+
+    return {
+        "teams": teams_result.get("teams", []),
+        "stats": stats,
+        "search": search or "",
+        "status_filter": status_filter or "",
+        "pagination": pagination
+    }
 
 
 # 请求模型
@@ -96,7 +138,7 @@ async def admin_dashboard(
     page: int = 1,
     per_page: int = 20,
     search: Optional[str] = None,
-    status: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_admin)
 ):
@@ -110,20 +152,13 @@ async def admin_dashboard(
         # 设置每页数量
         # per_page = 20 (Removed hardcoded value)
         
-        # 获取 Team 列表 (分页)
-        teams_result = await team_service.get_all_teams(db, page=page, per_page=per_page, search=search, status=status)
-        
-        # 获取统计信息 (使用专用统计方法优化)
-        team_stats = await team_service.get_stats(db)
-        code_stats = await redemption_service.get_stats(db)
-
-        # 计算统计数据
-        stats = {
-            "total_teams": team_stats["total"],
-            "available_teams": team_stats["available"],
-            "total_codes": code_stats["total"],
-            "used_codes": code_stats["used"]
-        }
+        team_list_bootstrap = await build_dashboard_payload(
+            db,
+            page=page,
+            per_page=per_page,
+            search=search,
+            status_filter=status_filter
+        )
 
         return templates.TemplateResponse(
             "admin/index.html",
@@ -131,16 +166,12 @@ async def admin_dashboard(
                 "request": request,
                 "user": current_user,
                 "active_page": "dashboard",
-                "teams": teams_result.get("teams", []),
-                "stats": stats,
+                "teams": team_list_bootstrap["teams"],
+                "stats": team_list_bootstrap["stats"],
                 "search": search,
-                "status_filter": status,
-                "pagination": {
-                    "current_page": teams_result.get("current_page", page),
-                    "total_pages": teams_result.get("total_pages", 1),
-                    "total": teams_result.get("total", 0),
-                    "per_page": per_page
-                }
+                "status_filter": status_filter,
+                "pagination": team_list_bootstrap["pagination"],
+                "team_list_bootstrap": team_list_bootstrap
             }
         )
     except Exception as e:
@@ -150,6 +181,74 @@ async def admin_dashboard(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"加载管理员面板失败: {str(e)}"
+        )
+
+
+@router.get("/dashboard/stats")
+async def dashboard_stats(
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """获取控制台顶部统计数据"""
+    try:
+        team_stats = await team_service.get_stats(db)
+        code_stats = await redemption_service.get_stats(db)
+
+        return JSONResponse(content={
+            "success": True,
+            "stats": {
+                "total_teams": team_stats["total"],
+                "available_teams": team_stats["available"],
+                "remaining_seats": team_stats["remaining_seats"],
+                "total_codes": code_stats["total"],
+                "used_codes": code_stats["used"]
+            },
+            "error": None
+        })
+    except Exception as e:
+        logger.error(f"获取控制台统计失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "stats": None,
+                "error": f"获取控制台统计失败: {str(e)}"
+            }
+        )
+
+
+@router.get("/dashboard/data")
+async def dashboard_data(
+    page: int = 1,
+    per_page: int = 20,
+    search: Optional[str] = None,
+    status_filter: Optional[str] = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_admin)
+):
+    """返回控制台表格和顶部统计的局部刷新数据。"""
+    try:
+        payload = await build_dashboard_payload(
+            db,
+            page=page,
+            per_page=per_page,
+            search=search,
+            status_filter=status_filter
+        )
+        return JSONResponse(content={
+            "success": True,
+            "data": payload,
+            "error": None
+        })
+    except Exception as e:
+        logger.error(f"获取控制台局部刷新数据失败: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "success": False,
+                "data": None,
+                "error": f"获取控制台局部刷新数据失败: {str(e)}"
+            }
         )
 
 

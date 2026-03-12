@@ -1387,10 +1387,22 @@ class TeamService:
                         "status": "invited"
                     })
 
+            current_members = len(all_members)
+            team.current_members = current_members
+            team.last_sync = get_now()
+
+            if current_members >= team.max_members:
+                team.status = "full"
+            elif team.expires_at and team.expires_at < datetime.now():
+                team.status = "expired"
+            elif team.status in ["active", "full", "expired", "error"]:
+                team.status = "active"
+
             logger.info(f"获取 Team {team_id} 成员列表成功: 共 {len(all_members)} 个成员 (已加入: {members_result['total']})")
 
             # 6. 请求成功，重置错误状态
             await self._reset_error_status(team, db_session)
+            await db_session.commit()
 
             return {
                 "success": True,
@@ -1545,22 +1557,7 @@ class TeamService:
                     "error": f"Team ID {team_id} 不存在"
                 }
 
-            # 2. 检查 Team 状态
-            if team.status == "full":
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "Team 已满,无法添加成员"
-                }
-
-            if team.status == "expired":
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "Team 已过期,无法添加成员"
-                }
-
-            # 3. 确保 AT Token 有效
+            # 2. 确保 AT Token 有效
             access_token = await self.ensure_access_token(team, db_session)
             if not access_token:
                 return {
@@ -1568,6 +1565,40 @@ class TeamService:
                     "message": None,
                     "error": "Token 已过期且无法刷新"
                 }
+
+            # 3. 先用实时成员快照校准本地摘要，避免旧的 full 状态误拦截
+            snapshot_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
+            if snapshot_res["success"]:
+                if team.current_members >= team.max_members:
+                    return {
+                        "success": False,
+                        "message": None,
+                        "error": "Team 已满,无法添加成员"
+                    }
+                if team.expires_at and team.expires_at < datetime.now():
+                    return {
+                        "success": False,
+                        "message": None,
+                        "error": "Team 已过期,无法添加成员"
+                    }
+            else:
+                logger.warning(
+                    "添加成员前刷新 Team %s 实时成员快照失败，回退使用本地状态判断: %s",
+                    team_id,
+                    snapshot_res.get("error", "Unknown error")
+                )
+                if team.status == "full":
+                    return {
+                        "success": False,
+                        "message": None,
+                        "error": "Team 已满,无法添加成员"
+                    }
+                if team.status == "expired":
+                    return {
+                        "success": False,
+                        "message": None,
+                        "error": "Team 已过期,无法添加成员"
+                    }
 
             # 4. 调用 ChatGPT API 发送邀请
             invite_result = await self.chatgpt_service.send_invite(
@@ -1984,6 +2015,7 @@ class TeamService:
                 "id": team.id,
                 "email": team.email,
                 "account_id": team.account_id,
+                "account_role": team.account_role,
                 "access_token": access_token,
                 "refresh_token": refresh_token,
                 "session_token": session_token,
@@ -1995,6 +2027,9 @@ class TeamService:
                 "current_members": team.current_members,
                 "max_members": team.max_members,
                 "status": team.status,
+                "has_access_token": bool(team.access_token_encrypted),
+                "has_session_token": bool(team.session_token_encrypted),
+                "has_refresh_token": bool(team.refresh_token_encrypted),
                 "device_code_auth_enabled": team.device_code_auth_enabled,
                 "last_sync": team.last_sync.isoformat() if team.last_sync else None,
                 "created_at": team.created_at.isoformat() if team.created_at else None
@@ -2097,12 +2132,16 @@ class TeamService:
                     "email": team.email,
                     "account_id": team.account_id,
                     "team_name": team.team_name,
+                    "account_role": team.account_role,
                     "plan_type": team.plan_type,
                     "subscription_plan": team.subscription_plan,
                     "expires_at": team.expires_at.isoformat() if team.expires_at else None,
                     "current_members": team.current_members,
                     "max_members": team.max_members,
                     "status": team.status,
+                    "has_access_token": bool(team.access_token_encrypted),
+                    "has_session_token": bool(team.session_token_encrypted),
+                    "has_refresh_token": bool(team.refresh_token_encrypted),
                     "device_code_auth_enabled": getattr(team, 'device_code_auth_enabled', False),
                     "last_sync": team.last_sync.isoformat() if team.last_sync else None,
                     "created_at": team.created_at.isoformat() if team.created_at else None
@@ -2259,14 +2298,24 @@ class TeamService:
             )
             available_result = await db_session.execute(available_stmt)
             available = available_result.scalar() or 0
+
+            remaining_seats_stmt = select(
+                func.sum(Team.max_members - Team.current_members)
+            ).where(
+                Team.status == "active",
+                Team.current_members < Team.max_members
+            )
+            remaining_seats_result = await db_session.execute(remaining_seats_stmt)
+            remaining_seats = remaining_seats_result.scalar() or 0
             
             return {
                 "total": total,
-                "available": available
+                "available": available,
+                "remaining_seats": remaining_seats
             }
         except Exception as e:
             logger.error(f"获取 Team 统计信息失败: {e}")
-            return {"total": 0, "available": 0}
+            return {"total": 0, "available": 0, "remaining_seats": 0}
 
 
 # 创建全局 Team 服务实例

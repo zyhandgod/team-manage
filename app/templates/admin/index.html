@@ -7,61 +7,62 @@
     <h2>控制台</h2>
 </div>
 
-<div class="content-section">
-    <div class="section-header" style="margin-bottom: 0;">
-        <div>
-            <h3>长期存储提示</h3>
-            <p class="text-muted small" style="margin-top: 0.35rem;">推荐至少保留 AT + ST。只有 AT 时，当前 token 失效后该 Team 往往会在刷新时进入过期状态。</p>
-        </div>
-    </div>
-</div>
-
 <!-- 统计卡片 -->
 <div class="stats-container">
     <div class="stat-card">
         <div class="stat-icon"><i data-lucide="users"></i></div>
         <div class="stat-info-group">
-            <div class="stat-value">{{ stats.total_teams }}</div>
+            <div class="stat-value" data-stat-key="total_teams">{{ stats.total_teams }}</div>
             <div class="stat-label">Team 总数</div>
         </div>
     </div>
     <div class="stat-card stat-success">
         <div class="stat-icon"><i data-lucide="check-circle"></i></div>
         <div class="stat-info-group">
-            <div class="stat-value">{{ stats.available_teams }}</div>
+            <div class="stat-value" data-stat-key="available_teams">{{ stats.available_teams }}</div>
             <div class="stat-label">可用 Team</div>
         </div>
     </div>
     <div class="stat-card stat-info">
         <div class="stat-icon"><i data-lucide="ticket"></i></div>
         <div class="stat-info-group">
-            <div class="stat-value">{{ stats.total_codes }}</div>
+            <div class="stat-value" data-stat-key="total_codes">{{ stats.total_codes }}</div>
             <div class="stat-label">兑换码总数</div>
+        </div>
+    </div>
+    <div class="stat-card stat-info">
+        <div class="stat-icon"><i data-lucide="armchair"></i></div>
+        <div class="stat-info-group">
+            <div class="stat-value" data-stat-key="remaining_seats">{{ stats.remaining_seats }}</div>
+            <div class="stat-label">剩余车位</div>
         </div>
     </div>
     <div class="stat-card stat-warning">
         <div class="stat-icon"><i data-lucide="clipboard-list"></i></div>
         <div class="stat-info-group">
-            <div class="stat-value">{{ stats.used_codes }}</div>
+            <div class="stat-value" data-stat-key="used_codes">{{ stats.used_codes }}</div>
             <div class="stat-label">已使用兑换码</div>
         </div>
     </div>
 </div>
 
 <!-- Team 列表 -->
+<div id="teamListIslandRoot"></div>
+<script id="teamListBootstrap" type="application/json">{{ team_list_bootstrap | tojson }}</script>
+<div id="teamListFallback">
 <div class="content-section">
     <div class="section-header">
         <h3>Team 列表</h3>
         <div class="header-group">
             <!-- 批量操作 -->
             <div id="batchActions" class="batch-actions-group" style="display: none;">
-                <button onclick="handleBatchRefresh()" class="btn btn-secondary btn-sm">
+                <button onclick="handleBatchRefresh(this)" class="btn btn-secondary btn-sm">
                     <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> 批量刷新
                 </button>
-                <button onclick="handleBatchEnableDeviceAuth()" class="btn btn-success btn-sm">
+                <button onclick="handleBatchEnableDeviceAuth(this)" class="btn btn-success btn-sm">
                     <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i> 批量开启验证
                 </button>
-                <button onclick="handleBatchDelete()" class="btn btn-danger btn-sm">
+                <button onclick="handleBatchDelete(this)" class="btn btn-danger btn-sm">
                     <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 批量删除
                 </button>
                 <span class="selected-count text-muted small" style="margin-left: 8px;">已选 0 项</span>
@@ -172,23 +173,23 @@
                 </td>
                 <td class="credential-cell">
                     <div class="credential-badges">
-                        {% if team.access_token_encrypted %}
+                        {% if team.has_access_token %}
                         <span class="credential-badge at">AT</span>
                         {% endif %}
-                        {% if team.session_token_encrypted %}
+                        {% if team.has_session_token %}
                         <span class="credential-badge st">ST</span>
                         {% endif %}
-                        {% if team.refresh_token_encrypted %}
+                        {% if team.has_refresh_token %}
                         <span class="credential-badge rt">RT</span>
                         {% endif %}
-                        {% if not team.session_token_encrypted and not team.refresh_token_encrypted %}
+                        {% if not team.has_session_token and not team.has_refresh_token %}
                         <span class="credential-badge missing">仅 AT</span>
                         {% endif %}
                     </div>
                     <div class="credential-note">
-                        {% if team.session_token_encrypted %}
+                        {% if team.has_session_token %}
                         可自动续期
-                        {% elif team.refresh_token_encrypted %}
+                        {% elif team.has_refresh_token %}
                         依赖 RT 续期
                         {% else %}
                         长期稳定性较弱
@@ -358,13 +359,19 @@
 </div>
 {% endif %}
 </div>
+</div>
 
 <!-- 编辑 Team 模态框 -->
 <div id="editTeamModal" class="modal-overlay">
     <div class="modal">
         <div class="modal-header">
             <h3>编辑 Team 信息</h3>
-            <button class="modal-close" onclick="hideModal('editTeamModal')">&times;</button>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="showModal('editTeamParseModal')">
+                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 一键解析
+                </button>
+                <button class="modal-close" onclick="hideModal('editTeamModal')">&times;</button>
+            </div>
         </div>
         <div class="modal-body">
             <form id="editTeamForm" onsubmit="handleEditTeam(event)">
@@ -377,15 +384,11 @@
                     <label>Access Token (AT) <span class="required">*</span></label>
                     <div class="input-group-btn">
                         <input type="text" id="edit-team-token" name="accessToken" class="form-control" required>
-                        <button type="button" class="btn btn-secondary" onclick="refreshATInModal()"
+                        <button type="button" class="btn btn-secondary" onclick="refreshATInModal(this)"
                             title="立即从 ST/RT 刷新 AT">
                             <i data-lucide="refresh-cw" style="width: 14px; height: 14px;"></i> 刷新
                         </button>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label>Refresh Token (RT)</label>
-                    <input type="text" id="edit-team-refresh-token" name="refreshToken" class="form-control">
                 </div>
                 <div class="form-group">
                     <label>Session Token</label>
@@ -394,6 +397,10 @@
                 <div class="form-group">
                     <label>Client ID</label>
                     <input type="text" id="edit-team-client-id" name="clientId" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Refresh Token (RT)</label>
+                    <input type="text" id="edit-team-refresh-token" name="refreshToken" class="form-control">
                 </div>
                 <div class="form-group">
                     <label>Account ID <span class="required">*</span></label>
@@ -431,9 +438,43 @@
         </div>
     </div>
 </div>
+
+<div id="editTeamParseModal" class="modal-overlay">
+    <div class="modal" style="max-width: 640px;">
+        <div class="modal-header">
+            <h3>解析 JSON</h3>
+            <button class="modal-close" onclick="hideModal('editTeamParseModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label>粘贴 auth/session JSON</label>
+                <textarea id="editJsonParseInput" class="form-control" rows="6"
+                    placeholder='粘贴从 https://chatgpt.com/api/auth/session 获取的 JSON 数据，例如：
+{
+  "user": {"email": "your@email.com"},
+  "accessToken": "eyJ...",
+  "sessionToken": "eyJ..."
+}'></textarea>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-success btn-sm" onclick="parseEditTeamJSON()">
+                    <i data-lucide="zap" style="width: 14px; height: 14px;"></i> 解析并填充
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="openOfficialAPI()">
+                    <i data-lucide="external-link" style="width: 14px; height: 14px;"></i> 打开 API 页面
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="clearEditTeamParseInput()">
+                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> 清空解析框
+                </button>
+            </div>
+            <div id="editParseResult" style="margin-top: 0.75rem; font-size: 0.875rem;"></div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{{ static_asset('team-list-island/team-list-island.css') }}">
 {% endblock %}
 
 {% block extra_js %}
@@ -455,7 +496,7 @@
         document.querySelectorAll('.btn-refresh-team').forEach(btn => {
             btn.addEventListener('click', () => {
                 const id = btn.getAttribute('data-id');
-                refreshTeam(id);
+                refreshTeam(id, btn);
             });
         });
 
@@ -464,7 +505,7 @@
             btn.addEventListener('click', () => {
                 const id = btn.getAttribute('data-id');
                 const email = btn.getAttribute('data-email');
-                deleteTeam(id, email);
+                deleteTeam(id, email, btn);
             });
         });
 
@@ -480,13 +521,18 @@
         document.querySelectorAll('.btn-enable-device-auth').forEach(btn => {
             btn.addEventListener('click', () => {
                 const id = btn.getAttribute('data-id');
-                enableDeviceAuth(id);
+                enableDeviceAuth(id, btn);
             });
         });
     });
 
-    async function enableDeviceAuth(teamId) {
-        if (!confirm('确定要为该 Team 开启设备代码身份验证吗?')) {
+    async function enableDeviceAuth(teamId, triggerEl = null) {
+        if (!await confirmAction({
+            title: '开启设备验证',
+            content: '确定要为该 Team 开启设备代码身份验证吗？',
+            okText: '立即开启',
+            triggerEl
+        })) {
             return;
         }
 
@@ -500,7 +546,8 @@
 
             if (response.ok && data.success) {
                 showToast('开启成功', 'success');
-                setTimeout(() => location.reload(), 1000);
+                await refreshTeamListRow(teamId);
+                await refreshDashboardStats();
             } else {
                 showToast(data.error || '开启失败', 'error');
             }
@@ -509,8 +556,13 @@
         }
     }
 
-    async function refreshTeam(teamId) {
-        if (!confirm('确定要刷新此 Team 的信息吗?')) {
+    async function refreshTeam(teamId, triggerEl = null) {
+        if (!await confirmAction({
+            title: '刷新 Team',
+            content: '确定要刷新此 Team 的信息吗？',
+            okText: '立即刷新',
+            triggerEl
+        })) {
             return;
         }
 
@@ -524,7 +576,8 @@
 
             if (response.ok && data.success) {
                 showToast('刷新成功', 'success');
-                setTimeout(() => location.reload(), 1000);
+                await refreshTeamListRow(teamId);
+                await refreshDashboardStats();
             } else {
                 showToast(data.error || '刷新失败', 'error');
             }
@@ -533,11 +586,16 @@
         }
     }
 
-    async function refreshATInModal() {
+    async function refreshATInModal(triggerEl = null) {
         const teamId = document.getElementById('edit-team-id').value;
         if (!teamId) return;
 
-        if (!confirm('确定要刷新此 Team 的 Access Token 吗?')) {
+        if (!await confirmAction({
+            title: '刷新 Access Token',
+            content: '确定要刷新此 Team 的 Access Token 吗？',
+            okText: '刷新 AT',
+            triggerEl
+        })) {
             return;
         }
 
@@ -576,8 +634,14 @@
         }
     }
 
-    async function deleteTeam(teamId, email) {
-        if (!confirm(`确定要删除 Team "${email}" 吗?\n\n此操作不可恢复!`)) {
+    async function deleteTeam(teamId, email, triggerEl = null) {
+        if (!await confirmAction({
+            title: '删除 Team',
+            content: `确定要删除 Team "${email}" 吗？此操作不可恢复。`,
+            okText: '确认删除',
+            danger: true,
+            triggerEl
+        })) {
             return;
         }
 
@@ -591,7 +655,8 @@
 
             if (response.ok && data.success) {
                 showToast('删除成功', 'success');
-                setTimeout(() => location.reload(), 1000);
+                removeTeamFromVisibleTable(teamId);
+                await refreshDashboardStats();
             } else {
                 showToast(data.error || '删除失败', 'error');
             }
@@ -606,6 +671,7 @@
 
             if (response.ok && data.success) {
                 const team = data.team;
+                clearEditTeamParseInput(false);
                 document.getElementById('edit-team-id').value = team.id;
                 document.getElementById('edit-team-email').value = team.email;
                 document.getElementById('edit-team-token').value = team.access_token || '';
@@ -656,7 +722,8 @@
             if (response.ok && result.success) {
                 showToast('更新成功', 'success');
                 hideModal('editTeamModal');
-                setTimeout(() => location.reload(), 1000);
+                await refreshTeamListRow(teamId);
+                await refreshDashboardStats();
             } else {
                 showToast(result.error || '更新失败', 'error');
             }
@@ -777,7 +844,7 @@
         }
     }
 
-    async function handleBatchAction(endpoint, actionName) {
+    async function handleBatchAction(endpoint, actionName, triggerEl = null) {
         const selectedIds = Array.from(document.querySelectorAll('.team-checkbox:checked'))
             .map(cb => parseInt(cb.value));
 
@@ -786,7 +853,13 @@
             return;
         }
 
-        if (!confirm(`确定要对选中的 ${selectedIds.length} 个 Team 进行 "${actionName}" 操作吗？`)) {
+        if (!await confirmAction({
+            title: actionName,
+            content: `确定要对选中的 ${selectedIds.length} 个 Team 执行“${actionName}”吗？`,
+            okText: actionName.includes('删除') ? '确认删除' : '确认执行',
+            danger: actionName.includes('删除'),
+            triggerEl
+        })) {
             return;
         }
 
@@ -814,16 +887,16 @@
         }
     }
 
-    function handleBatchRefresh() {
-        handleBatchAction(adminUrl('/teams/batch-refresh'), '批量刷新');
+    function handleBatchRefresh(triggerEl = null) {
+        handleBatchAction(adminUrl('/teams/batch-refresh'), '批量刷新', triggerEl);
     }
 
-    function handleBatchDelete() {
-        handleBatchAction(adminUrl('/teams/batch-delete'), '批量删除');
+    function handleBatchDelete(triggerEl = null) {
+        handleBatchAction(adminUrl('/teams/batch-delete'), '批量删除', triggerEl);
     }
 
-    function handleBatchEnableDeviceAuth() {
-        handleBatchAction(adminUrl('/teams/batch-enable-device-auth'), '批量开启验证');
+    function handleBatchEnableDeviceAuth(triggerEl = null) {
+        handleBatchAction(adminUrl('/teams/batch-enable-device-auth'), '批量开启验证', triggerEl);
     }
 
     function changePerPage(val) {
@@ -833,4 +906,5 @@
         window.location.href = url.toString();
     }
 </script>
+<script type="module" src="{{ static_asset('team-list-island/team-list-island.js') }}"></script>
 {% endblock %}

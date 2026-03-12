@@ -159,6 +159,23 @@ function hideModal(modalId) {
     if (modal) {
         modal.classList.remove('show');
         document.body.style.overflow = '';
+
+        if (modalId === 'manageMembersModal') {
+            clearManageMembersRefreshTimers();
+
+            const shouldReloadPage = Boolean(window.manageMembersDirty);
+            const reloadDelay = window.manageMembersPendingSync ? 2000 : 150;
+
+            window.manageMembersDirty = false;
+            window.manageMembersPendingSync = false;
+            window.currentTeamId = null;
+
+            if (shouldReloadPage) {
+                setTimeout(() => {
+                    window.location.reload();
+                }, reloadDelay);
+            }
+        }
     }
 }
 
@@ -622,6 +639,10 @@ function downloadCodes() {
 
 async function viewMembers(teamId, teamEmail = '') {
     window.currentTeamId = teamId;
+    window.manageMembersDirty = false;
+    window.manageMembersPendingSync = false;
+    clearManageMembersRefreshTimers();
+
     const modal = document.getElementById('manageMembersModal');
     if (!modal) return;
 
@@ -633,6 +654,33 @@ async function viewMembers(teamId, teamEmail = '') {
 
     // 加载成员列表
     await loadModalMemberList(teamId);
+}
+
+function markManageMembersDirty(options = {}) {
+    window.manageMembersDirty = true;
+    if (options.pendingSync) {
+        window.manageMembersPendingSync = true;
+    }
+}
+
+function clearManageMembersRefreshTimers() {
+    const timers = window.manageMembersRefreshTimers || [];
+    timers.forEach(timerId => clearTimeout(timerId));
+    window.manageMembersRefreshTimers = [];
+}
+
+function scheduleManageMembersRefresh(teamId) {
+    clearManageMembersRefreshTimers();
+
+    const delays = [1500, 4000];
+    window.manageMembersRefreshTimers = delays.map(delay => setTimeout(async () => {
+        if (window.currentTeamId !== teamId) {
+            return;
+        }
+
+        await loadModalMemberList(teamId);
+        await refreshTeamListRow(teamId);
+    }, delay));
 }
 
 function getTeamStatusLabel(status) {
@@ -766,6 +814,7 @@ async function revokeInvite(teamId, email, inModal = false) {
         if (result.success) {
             showToast('撤回成功', 'success');
             if (inModal) {
+                markManageMembersDirty();
                 await loadModalMemberList(teamId);
                 await refreshTeamListRow(teamId);
             } else {
@@ -802,12 +851,16 @@ async function handleAddMember(event) {
         });
 
         if (result.success) {
-            showToast('成员添加成功！', 'success');
+            showToast(result.data.message || '成员添加成功！', 'success');
             form.reset();
             // 在模态框模式下，只负载列表
             if (document.getElementById('manageMembersModal').classList.contains('show')) {
+                markManageMembersDirty({ pendingSync: Boolean(result.data.pending_sync) });
                 await loadModalMemberList(teamId);
                 await refreshTeamListRow(teamId);
+                if (result.data.pending_sync) {
+                    scheduleManageMembersRefresh(teamId);
+                }
             } else {
                 setTimeout(() => location.reload(), 1500);
             }
@@ -836,6 +889,7 @@ async function deleteMember(teamId, userId, email, inModal = false) {
         if (result.success) {
             showToast('删除成功', 'success');
             if (inModal) {
+                markManageMembersDirty();
                 await loadModalMemberList(teamId);
                 await refreshTeamListRow(teamId);
             } else {

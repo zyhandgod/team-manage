@@ -247,6 +247,39 @@ class TeamService:
             "error": None
         }
 
+    async def _apply_local_member_delta(
+        self,
+        team: Team,
+        delta: int,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        当远端成员列表存在短暂延迟时，先按本次操作结果更新本地摘要。
+        """
+        current_members = max(0, min(team.max_members, (team.current_members or 0) + delta))
+        team.current_members = current_members
+        team.error_count = 0
+        team.last_sync = get_now()
+
+        if current_members >= team.max_members:
+            team.status = "full"
+        elif team.expires_at and team.expires_at < datetime.now():
+            team.status = "expired"
+        else:
+            team.status = "active"
+
+        if not db_session.in_transaction():
+            await db_session.commit()
+        else:
+            await db_session.flush()
+
+        return {
+            "success": True,
+            "current_members": current_members,
+            "member_emails": [],
+            "error": None
+        }
+
     async def ensure_access_token(self, team: Team, db_session: AsyncSession, force_refresh: bool = False) -> Optional[str]:
         """
         确保 AT Token 有效,如果过期则尝试刷新
@@ -1455,9 +1488,10 @@ class TeamService:
                 snapshot_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
                 if not snapshot_res["success"]:
                     logger.warning(
-                        "撤回邀请后成员快照兜底也失败，列表页可能暂时显示旧成员数: %s",
+                        "撤回邀请后成员快照兜底也失败，改用本地摘要扣减成员数: %s",
                         snapshot_res.get("error", "Unknown error")
                     )
+                    await self._apply_local_member_delta(team, -1, db_session)
 
             await db_session.commit()
 
@@ -1566,32 +1600,29 @@ class TeamService:
                 }
 
             # 5. 更新成员数并二次校验邀请是否真的生效 (防止接口返回 200 但实际未加入)
-            sync_res = await self.sync_team_info(team_id, db_session)
-            if not sync_res["success"]:
-                logger.warning(
-                    "添加成员后同步 Team %s 摘要失败，改用成员快照兜底: %s",
-                    team_id,
-                    sync_res.get("error", "Unknown error")
-                )
-                sync_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
-                if not sync_res["success"]:
-                    return {
-                        "success": False,
-                        "message": None,
-                        "error": f"邀请发送成功，但同步 Team 摘要失败: {sync_res['error']}"
-                    }
+            email_lower = email.lower()
+            member_visible = False
+            last_sync_error = None
 
-            member_emails = sync_res.get("member_emails", [])
-            
-            if email.lower() not in [m.lower() for m in member_emails]:
-                logger.error(f"检测到“虚假成功”: Team {team_id} 发送邀请返回成功，但成员列表中未见该邮箱 {email}")
-                # 标记错误
-                await self._handle_api_error({"success": False, "error": "邀请发送成功但同步列表未见成员", "error_code": "ghost_success"}, team, db_session)
-                return {
-                    "success": False,
-                    "message": None,
-                    "error": "邀请发送成功但同步成员列表校验失败，该 Team 账号可能存在异常。"
-                }
+            for attempt in range(3):
+                sync_res = await self.sync_team_info(team_id, db_session)
+                if not sync_res["success"]:
+                    logger.warning(
+                        "添加成员后第 %s 次同步 Team %s 摘要失败，改用成员快照兜底: %s",
+                        attempt + 1,
+                        team_id,
+                        sync_res.get("error", "Unknown error")
+                    )
+                    sync_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
+
+                member_emails = [m.lower() for m in sync_res.get("member_emails", [])]
+                if email_lower in member_emails:
+                    member_visible = True
+                    break
+
+                last_sync_error = sync_res.get("error")
+                if attempt < 2:
+                    await asyncio.sleep(2)
 
             await db_session.commit()
 
@@ -1600,9 +1631,25 @@ class TeamService:
             # 6. 请求成功，重置错误状态
             await self._reset_error_status(team, db_session)
 
+            if not member_visible:
+                await self._apply_local_member_delta(team, 1, db_session)
+                logger.warning(
+                    "Team %s 邀请 %s 已发送成功，但成员列表尚未同步显示，按本地摘要先行更新",
+                    team_id,
+                    email
+                )
+                return {
+                    "success": True,
+                    "message": f"邀请已发送到 {email}，成员列表可能会延迟几秒刷新",
+                    "pending_sync": True,
+                    "sync_error": last_sync_error,
+                    "error": None
+                }
+
             return {
                 "success": True,
                 "message": f"邀请已发送到 {email}",
+                "pending_sync": False,
                 "error": None
             }
 
@@ -1695,9 +1742,10 @@ class TeamService:
                 snapshot_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
                 if not snapshot_res["success"]:
                     logger.warning(
-                        "删除成员后成员快照兜底也失败，列表页可能暂时显示旧成员数: %s",
+                        "删除成员后成员快照兜底也失败，改用本地摘要扣减成员数: %s",
                         snapshot_res.get("error", "Unknown error")
                     )
+                    await self._apply_local_member_delta(team, -1, db_session)
 
             await db_session.commit()
 

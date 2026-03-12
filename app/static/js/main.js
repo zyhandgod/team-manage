@@ -635,6 +635,47 @@ async function viewMembers(teamId, teamEmail = '') {
     await loadModalMemberList(teamId);
 }
 
+function getTeamStatusLabel(status) {
+    switch (status) {
+        case 'active':
+            return '可用';
+        case 'full':
+            return '已满';
+        case 'expired':
+            return '已过期';
+        case 'banned':
+            return '已封禁';
+        case 'error':
+            return '异常';
+        default:
+            return '未知';
+    }
+}
+
+function updateTeamListRow(team) {
+    const row = document.querySelector(`tr[data-team-id="${team.id}"]`);
+    if (!row) return;
+
+    const memberCount = row.querySelector('.member-count');
+    if (memberCount) {
+        memberCount.textContent = `${team.current_members}/${team.max_members}`;
+        memberCount.dataset.maxMembers = String(team.max_members);
+    }
+
+    const statusBadge = row.querySelector('.team-status-badge');
+    if (statusBadge) {
+        statusBadge.className = `status-badge team-status-badge status-${team.status}`;
+        statusBadge.textContent = getTeamStatusLabel(team.status);
+    }
+}
+
+async function refreshTeamListRow(teamId) {
+    const result = await apiCall(adminUrl(`/teams/${teamId}/info`));
+    if (result.success && result.data.team) {
+        updateTeamListRow(result.data.team);
+    }
+}
+
 async function loadModalMemberList(teamId) {
     const joinedTableBody = document.getElementById('modalJoinedMembersTableBody');
     const invitedTableBody = document.getElementById('modalInvitedMembersTableBody');
@@ -726,6 +767,7 @@ async function revokeInvite(teamId, email, inModal = false) {
             showToast('撤回成功', 'success');
             if (inModal) {
                 await loadModalMemberList(teamId);
+                await refreshTeamListRow(teamId);
             } else {
                 setTimeout(() => location.reload(), 1000);
             }
@@ -765,6 +807,7 @@ async function handleAddMember(event) {
             // 在模态框模式下，只负载列表
             if (document.getElementById('manageMembersModal').classList.contains('show')) {
                 await loadModalMemberList(teamId);
+                await refreshTeamListRow(teamId);
             } else {
                 setTimeout(() => location.reload(), 1500);
             }
@@ -794,6 +837,7 @@ async function deleteMember(teamId, userId, email, inModal = false) {
             showToast('删除成功', 'success');
             if (inModal) {
                 await loadModalMemberList(teamId);
+                await refreshTeamListRow(teamId);
             } else {
                 setTimeout(() => location.reload(), 1000);
             }

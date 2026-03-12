@@ -160,7 +160,7 @@
         </thead>
         <tbody>
             {% for team in teams %}
-            <tr>
+            <tr data-team-id="{{ team.id }}">
                 <td><input type="checkbox" class="team-checkbox" value="{{ team.id }}" onchange="updateSelectedCount()">
                 </td>
                 <td><span class="text-muted">{{ team.id }}</span></td>
@@ -198,7 +198,7 @@
                 <td><span class="text-muted small">{{ team.account_id or '-' }}</span></td>
                 <td>{{ team.team_name or '-' }}</td>
                 <td>
-                    <span class="member-count">
+                    <span class="member-count" data-max-members="{{ team.max_members }}">
                         {{ team.current_members }}/{{ team.max_members }}
                     </span>
                 </td>
@@ -218,7 +218,7 @@
                     {% endif %}
                 </td>
                 <td>
-                    <span class="status-badge status-{{ team.status }}">
+                    <span class="status-badge team-status-badge status-{{ team.status }}">
                         {% if team.status == 'active' %}
                         可用
                         {% elif team.status == 'full' %}

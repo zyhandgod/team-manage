@@ -173,6 +173,80 @@ class TeamService:
             "error": None
         }
 
+    async def _refresh_team_member_snapshot(
+        self,
+        team: Team,
+        access_token: str,
+        db_session: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        仅刷新 Team 的成员和邀请摘要，避免完整同步失败时列表页继续显示旧值。
+        """
+        members_result = await self.chatgpt_service.get_members(
+            access_token,
+            team.account_id,
+            db_session,
+            identifier=team.email
+        )
+        if not members_result["success"]:
+            return {
+                "success": False,
+                "current_members": team.current_members,
+                "member_emails": [],
+                "error": members_result.get("error", "获取成员列表失败")
+            }
+
+        invites_result = await self.chatgpt_service.get_invites(
+            access_token,
+            team.account_id,
+            db_session,
+            identifier=team.email
+        )
+        if not invites_result["success"]:
+            logger.warning(
+                "Team %s 成员快照刷新时获取邀请失败，将仅使用已加入成员数更新本地摘要: %s",
+                team.id,
+                invites_result.get("error", "Unknown error")
+            )
+
+        member_emails = set()
+        current_members = members_result["total"]
+
+        for member in members_result.get("members", []):
+            email = member.get("email")
+            if email:
+                member_emails.add(email.lower())
+
+        if invites_result["success"]:
+            current_members += invites_result["total"]
+            for invite in invites_result.get("items", []):
+                invite_email = invite.get("email_address")
+                if invite_email:
+                    member_emails.add(invite_email.lower())
+
+        team.current_members = current_members
+        team.error_count = 0
+        team.last_sync = get_now()
+
+        if current_members >= team.max_members:
+            team.status = "full"
+        elif team.expires_at and team.expires_at < datetime.now():
+            team.status = "expired"
+        else:
+            team.status = "active"
+
+        if not db_session.in_transaction():
+            await db_session.commit()
+        else:
+            await db_session.flush()
+
+        return {
+            "success": True,
+            "current_members": current_members,
+            "member_emails": list(member_emails),
+            "error": None
+        }
+
     async def ensure_access_token(self, team: Team, db_session: AsyncSession, force_refresh: bool = False) -> Optional[str]:
         """
         确保 AT Token 有效,如果过期则尝试刷新
@@ -1371,7 +1445,19 @@ class TeamService:
                 }
 
             # 4. 更新成员数 (不再手动 -1，同步最新数据)
-            await self.sync_team_info(team_id, db_session)
+            sync_res = await self.sync_team_info(team_id, db_session)
+            if not sync_res["success"]:
+                logger.warning(
+                    "撤回邀请后同步 Team %s 摘要失败，改用成员快照兜底: %s",
+                    team_id,
+                    sync_res.get("error", "Unknown error")
+                )
+                snapshot_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
+                if not snapshot_res["success"]:
+                    logger.warning(
+                        "撤回邀请后成员快照兜底也失败，列表页可能暂时显示旧成员数: %s",
+                        snapshot_res.get("error", "Unknown error")
+                    )
 
             await db_session.commit()
 
@@ -1481,6 +1567,20 @@ class TeamService:
 
             # 5. 更新成员数并二次校验邀请是否真的生效 (防止接口返回 200 但实际未加入)
             sync_res = await self.sync_team_info(team_id, db_session)
+            if not sync_res["success"]:
+                logger.warning(
+                    "添加成员后同步 Team %s 摘要失败，改用成员快照兜底: %s",
+                    team_id,
+                    sync_res.get("error", "Unknown error")
+                )
+                sync_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
+                if not sync_res["success"]:
+                    return {
+                        "success": False,
+                        "message": None,
+                        "error": f"邀请发送成功，但同步 Team 摘要失败: {sync_res['error']}"
+                    }
+
             member_emails = sync_res.get("member_emails", [])
             
             if email.lower() not in [m.lower() for m in member_emails]:
@@ -1585,7 +1685,19 @@ class TeamService:
                 }
 
             # 4. 更新成员数 (不再手动 -1，同步最新数据)
-            await self.sync_team_info(team_id, db_session)
+            sync_res = await self.sync_team_info(team_id, db_session)
+            if not sync_res["success"]:
+                logger.warning(
+                    "删除成员后同步 Team %s 摘要失败，改用成员快照兜底: %s",
+                    team_id,
+                    sync_res.get("error", "Unknown error")
+                )
+                snapshot_res = await self._refresh_team_member_snapshot(team, access_token, db_session)
+                if not snapshot_res["success"]:
+                    logger.warning(
+                        "删除成员后成员快照兜底也失败，列表页可能暂时显示旧成员数: %s",
+                        snapshot_res.get("error", "Unknown error")
+                    )
 
             await db_session.commit()
 

@@ -268,11 +268,15 @@ function TeamListIsland({ bootstrap }) {
   const [currentMembersTeam, setCurrentMembersTeam] = useState(null);
   const [joinedMembers, setJoinedMembers] = useState([]);
   const [invitedMembers, setInvitedMembers] = useState([]);
+  const [tableScrollY, setTableScrollY] = useState(360);
 
   const membersTeamIdRef = useRef(null);
   const membersDirtyRef = useRef(false);
   const membersPendingSyncRef = useRef(false);
   const membersRefreshTimersRef = useRef([]);
+  const islandContainerRef = useRef(null);
+  const islandHeaderRef = useRef(null);
+  const tableShellRef = useRef(null);
 
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
@@ -323,6 +327,48 @@ function TeamListIsland({ bootstrap }) {
   useEffect(() => {
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
+
+  useEffect(() => {
+    const computeTableScrollY = () => {
+      const islandEl = islandContainerRef.current;
+      const tableShellEl = tableShellRef.current;
+
+      if (!islandEl || !tableShellEl) {
+        return;
+      }
+
+      const viewportHeight = window.innerHeight;
+      const shellRect = tableShellEl.getBoundingClientRect();
+      const islandRect = islandEl.getBoundingClientRect();
+      const shellBottomPadding = 88;
+      const islandBottomPadding = Math.max(islandRect.bottom - shellRect.bottom, 0);
+      const nextHeight = Math.max(
+        220,
+        Math.floor(viewportHeight - shellRect.top - shellBottomPadding - islandBottomPadding)
+      );
+
+      setTableScrollY(current => (current !== nextHeight ? nextHeight : current));
+    };
+
+    computeTableScrollY();
+
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => computeTableScrollY())
+      : null;
+
+    if (resizeObserver) {
+      if (islandContainerRef.current) resizeObserver.observe(islandContainerRef.current);
+      if (islandHeaderRef.current) resizeObserver.observe(islandHeaderRef.current);
+      if (tableShellRef.current) resizeObserver.observe(tableShellRef.current);
+    }
+
+    window.addEventListener('resize', computeTableScrollY);
+
+    return () => {
+      window.removeEventListener('resize', computeTableScrollY);
+      resizeObserver?.disconnect();
+    };
+  }, [teamsData.length, selectedRowKeys.length, statusFilter, appliedSearch, paginationState.per_page]);
 
   const normalizedSearch = appliedSearch.trim().toLowerCase();
 
@@ -1540,8 +1586,8 @@ function TeamListIsland({ bootstrap }) {
         </Popconfirm>
       ) : null}
 
-      <div className="team-list-island">
-        <div className="team-list-header">
+      <div className="team-list-island" ref={islandContainerRef}>
+        <div className="team-list-header" ref={islandHeaderRef}>
           <div className="team-list-header-title">
             <h3>Team 列表</h3>
           </div>
@@ -1625,40 +1671,42 @@ function TeamListIsland({ bootstrap }) {
           </Space>
         </div>
 
-        <Table
-          rowKey="id"
-          loading={tableLoading}
-          dataSource={teamsData}
-          columns={columns}
-          locale={{
-            emptyText: (
-              <Empty
-                description="暂无 Team 数据"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
-            )
-          }}
-          rowSelection={{
-            selectedRowKeys,
-            onChange: keys => setSelectedRowKeys(keys)
-          }}
-          scroll={{ x: 1200 }}
-          pagination={{
-            current: paginationState.current_page,
-            pageSize: paginationState.per_page,
-            total: paginationState.total,
-            showSizeChanger: true,
-            pageSizeOptions: ['20', '50', '100'],
-            onChange: (page, pageSize) => {
-              window.location.href = buildNextUrl({
-                search: appliedSearch,
-                statusFilter,
-                page,
-                perPage: pageSize
-              });
-            }
-          }}
-        />
+        <div className="team-list-table-shell" ref={tableShellRef}>
+          <Table
+            rowKey="id"
+            loading={tableLoading}
+            dataSource={teamsData}
+            columns={columns}
+            locale={{
+              emptyText: (
+                <Empty
+                  description="暂无 Team 数据"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              )
+            }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: keys => setSelectedRowKeys(keys)
+            }}
+            scroll={{ x: 1200, y: tableScrollY }}
+            pagination={{
+              current: paginationState.current_page,
+              pageSize: paginationState.per_page,
+              total: paginationState.total,
+              showSizeChanger: true,
+              pageSizeOptions: ['20', '50', '100'],
+              onChange: (page, pageSize) => {
+                window.location.href = buildNextUrl({
+                  search: appliedSearch,
+                  statusFilter,
+                  page,
+                  perPage: pageSize
+                });
+              }
+            }}
+          />
+        </div>
       </div>
 
       <Modal

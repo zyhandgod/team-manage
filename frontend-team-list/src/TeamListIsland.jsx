@@ -41,14 +41,14 @@ const COLUMN_STORAGE_KEY = 'team_list_island_columns';
 const DEFAULT_COLUMNS = [
   'id',
   'email',
-  'credential',
-  'account_id',
+  'status',
+  'device_code_auth_enabled',
   'team_name',
   'members',
   'subscription_plan',
   'expires_at',
-  'device_code_auth_enabled',
-  'status',
+  'credential',
+  'account_id',
   'actions'
 ];
 
@@ -268,15 +268,10 @@ function TeamListIsland({ bootstrap }) {
   const [currentMembersTeam, setCurrentMembersTeam] = useState(null);
   const [joinedMembers, setJoinedMembers] = useState([]);
   const [invitedMembers, setInvitedMembers] = useState([]);
-  const [tableScrollY, setTableScrollY] = useState(360);
-
   const membersTeamIdRef = useRef(null);
   const membersDirtyRef = useRef(false);
   const membersPendingSyncRef = useRef(false);
   const membersRefreshTimersRef = useRef([]);
-  const islandContainerRef = useRef(null);
-  const islandHeaderRef = useRef(null);
-  const tableShellRef = useRef(null);
 
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
@@ -327,48 +322,6 @@ function TeamListIsland({ bootstrap }) {
   useEffect(() => {
     localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
   }, [visibleColumns]);
-
-  useEffect(() => {
-    const computeTableScrollY = () => {
-      const islandEl = islandContainerRef.current;
-      const tableShellEl = tableShellRef.current;
-
-      if (!islandEl || !tableShellEl) {
-        return;
-      }
-
-      const viewportHeight = window.innerHeight;
-      const shellRect = tableShellEl.getBoundingClientRect();
-      const islandRect = islandEl.getBoundingClientRect();
-      const shellBottomPadding = 88;
-      const islandBottomPadding = Math.max(islandRect.bottom - shellRect.bottom, 0);
-      const nextHeight = Math.max(
-        220,
-        Math.floor(viewportHeight - shellRect.top - shellBottomPadding - islandBottomPadding)
-      );
-
-      setTableScrollY(current => (current !== nextHeight ? nextHeight : current));
-    };
-
-    computeTableScrollY();
-
-    const resizeObserver = typeof ResizeObserver !== 'undefined'
-      ? new ResizeObserver(() => computeTableScrollY())
-      : null;
-
-    if (resizeObserver) {
-      if (islandContainerRef.current) resizeObserver.observe(islandContainerRef.current);
-      if (islandHeaderRef.current) resizeObserver.observe(islandHeaderRef.current);
-      if (tableShellRef.current) resizeObserver.observe(tableShellRef.current);
-    }
-
-    window.addEventListener('resize', computeTableScrollY);
-
-    return () => {
-      window.removeEventListener('resize', computeTableScrollY);
-      resizeObserver?.disconnect();
-    };
-  }, [teamsData.length, selectedRowKeys.length, statusFilter, appliedSearch, paginationState.per_page]);
 
   const normalizedSearch = appliedSearch.trim().toLowerCase();
 
@@ -1142,17 +1095,24 @@ function TeamListIsland({ bootstrap }) {
       )
     },
     {
-      title: '凭证',
-      key: 'credential',
-      width: 170,
-      render: (_, record) => <CredentialCell team={record} />
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 120,
+      render: value => {
+        return renderStatusTag(value);
+      }
     },
     {
-      title: 'Account ID',
-      dataIndex: 'account_id',
-      key: 'account_id',
-      width: 250,
-      render: value => <Text type="secondary">{value || '-'}</Text>
+      title: '设备验证',
+      dataIndex: 'device_code_auth_enabled',
+      key: 'device_code_auth_enabled',
+      width: 120,
+      render: enabled => (
+        <Tag color={enabled ? 'green' : 'default'} bordered={false}>
+          {enabled ? '已开启' : '未开启'}
+        </Tag>
+      )
     },
     {
       title: 'Team 名称',
@@ -1182,24 +1142,17 @@ function TeamListIsland({ bootstrap }) {
       render: value => formatDateTime(value)
     },
     {
-      title: '设备验证',
-      dataIndex: 'device_code_auth_enabled',
-      key: 'device_code_auth_enabled',
-      width: 120,
-      render: enabled => (
-        <Tag color={enabled ? 'green' : 'default'} bordered={false}>
-          {enabled ? '已开启' : '未开启'}
-        </Tag>
-      )
+      title: '凭证',
+      key: 'credential',
+      width: 170,
+      render: (_, record) => <CredentialCell team={record} />
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 120,
-      render: value => {
-        return renderStatusTag(value);
-      }
+      title: 'Account ID',
+      dataIndex: 'account_id',
+      key: 'account_id',
+      width: 250,
+      render: value => <Text type="secondary">{value || '-'}</Text>
     },
     {
       title: '操作',
@@ -1586,8 +1539,8 @@ function TeamListIsland({ bootstrap }) {
         </Popconfirm>
       ) : null}
 
-      <div className="team-list-island" ref={islandContainerRef}>
-        <div className="team-list-header" ref={islandHeaderRef}>
+      <div className="team-list-island">
+        <div className="team-list-header">
           <div className="team-list-header-title">
             <h3>Team 列表</h3>
           </div>
@@ -1671,42 +1624,40 @@ function TeamListIsland({ bootstrap }) {
           </Space>
         </div>
 
-        <div className="team-list-table-shell" ref={tableShellRef}>
-          <Table
-            rowKey="id"
-            loading={tableLoading}
-            dataSource={teamsData}
-            columns={columns}
-            locale={{
-              emptyText: (
-                <Empty
-                  description="暂无 Team 数据"
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-              )
-            }}
-            rowSelection={{
-              selectedRowKeys,
-              onChange: keys => setSelectedRowKeys(keys)
-            }}
-            scroll={{ x: 1200, y: tableScrollY }}
-            pagination={{
-              current: paginationState.current_page,
-              pageSize: paginationState.per_page,
-              total: paginationState.total,
-              showSizeChanger: true,
-              pageSizeOptions: ['20', '50', '100'],
-              onChange: (page, pageSize) => {
-                window.location.href = buildNextUrl({
-                  search: appliedSearch,
-                  statusFilter,
-                  page,
-                  perPage: pageSize
-                });
-              }
-            }}
-          />
-        </div>
+        <Table
+          rowKey="id"
+          loading={tableLoading}
+          dataSource={teamsData}
+          columns={columns}
+          locale={{
+            emptyText: (
+              <Empty
+                description="暂无 Team 数据"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            )
+          }}
+          rowSelection={{
+            selectedRowKeys,
+            onChange: keys => setSelectedRowKeys(keys)
+          }}
+          scroll={{ x: 1200 }}
+          pagination={{
+            current: paginationState.current_page,
+            pageSize: paginationState.per_page,
+            total: paginationState.total,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '50', '100'],
+            onChange: (page, pageSize) => {
+              window.location.href = buildNextUrl({
+                search: appliedSearch,
+                statusFilter,
+                page,
+                perPage: pageSize
+              });
+            }
+          }}
+        />
       </div>
 
       <Modal

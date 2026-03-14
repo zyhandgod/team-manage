@@ -5,8 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GPT Team 兑换</title>
-    <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/user.css') }}?v=20260310d">
-    <!-- Lucide Icons -->
+    <link rel="stylesheet" href="{{ request.app.url_path_for('static', path='css/user.css') }}?v=20260314a">
     <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
@@ -22,7 +21,6 @@
             {% endif %}
         </div>
 
-        <!-- 步骤1: 输入兑换码 -->
         <div id="step1" class="step active">
             <div class="card">
                 <h2>输入兑换信息</h2>
@@ -30,7 +28,7 @@
                     <div class="form-group">
                         <label for="email">邮箱地址</label>
                         <input type="email" id="email" name="email" required placeholder="请输入您的邮箱地址" class="form-input">
-                        <p class="form-help">请填写您要接受邀请的账号的邮箱，邀请将发送到此邮箱</p>
+                        <p class="form-help">请填写您要接受邀请的账号邮箱，邀请会发送到此邮箱</p>
                     </div>
 
                     <div class="form-group">
@@ -42,10 +40,38 @@
                         <i data-lucide="shield-check"></i> 验证兑换码
                     </button>
                 </form>
+
+                <div class="warranty-section">
+                    <div class="section-heading">
+                        <div>
+                            <h3>
+                                <i data-lucide="shield"></i>
+                                质保查询
+                            </h3>
+                            <p class="warranty-intro">输入原兑换码或邮箱，查询当前车位是否已封禁，以及质保是否仍可重兑。</p>
+                        </div>
+                    </div>
+
+                    <div class="form-group warranty-query-group">
+                        <label for="warrantyInput">原兑换码或邮箱</label>
+                        <input type="text" id="warrantyInput" placeholder="请输入原兑换码或邮箱" class="form-input">
+                        <p class="form-help">支持用兑换码或邮箱查询，命中被封禁 Team 时会显示是否可重新使用。</p>
+                    </div>
+
+                    <button type="button" class="btn btn-secondary" id="checkWarrantyBtn">
+                        <i data-lucide="search"></i> 查询质保状态
+                    </button>
+                </div>
             </div>
         </div>
 
-        <!-- 步骤2: 选择Team (已废弃，保留占位符防止 JS 报错) -->
+        <div id="warrantyResult" class="step">
+            <div class="card">
+                <h2>质保查询结果</h2>
+                <div id="warrantyContent"></div>
+            </div>
+        </div>
+
         <div id="step2" class="step" style="display: none;">
             <div class="card">
                 <h2>选择 Team</h2>
@@ -57,20 +83,16 @@
             </div>
         </div>
 
-        <!-- 步骤3: 兑换结果 -->
         <div id="step3" class="step">
             <div class="card">
-                <div id="resultContent">
-                    <!-- 结果内容将通过JavaScript动态生成 -->
-                </div>
+                <div id="resultContent"></div>
             </div>
         </div>
     </div>
 
-    <!-- Toast提示 -->
     <div id="toast" class="toast"></div>
 
-    <script src="{{ request.app.url_path_for('static', path='js/redeem.js') }}?v=20260311a"></script>
+    <script src="{{ request.app.url_path_for('static', path='js/redeem.js') }}?v=20260314b"></script>
     <script>
         if (window.lucide) lucide.createIcons();
     </script>

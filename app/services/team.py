@@ -1000,6 +1000,7 @@ class TeamService:
 
                 # 调用通用的错误处理逻辑 (包含标记封禁、累计错误次数、后台刷新等)
                 await self._handle_api_error(account_result, team, db_session)
+                await db_session.commit()
 
                 if is_token_expired:
                     logger.info(f"Team {team.id} 同步时发现 Token 过期，尝试立即刷新并重试...")
@@ -1109,6 +1110,7 @@ class TeamService:
                     error_msg = "Token invalidated (token_invalidated)"
 
                 await self._handle_api_error(members_result, team, db_session)
+                await db_session.commit()
                 return {
                     "success": False,
                     "message": None,
@@ -1324,6 +1326,7 @@ class TeamService:
                     elif members_result.get("error_code") == "token_invalidated":
                         error_msg = "Token 已失效 (token_invalidated)"
                         
+                    await db_session.commit()
                     return {
                         "success": False,
                         "members": [],
@@ -1354,6 +1357,7 @@ class TeamService:
                     elif invites_result.get("error_code") == "token_invalidated":
                         error_msg = "Token 已失效 (token_invalidated)"
                         
+                    await db_session.commit()
                     return {
                         "success": False,
                         "members": [],
@@ -1477,6 +1481,7 @@ class TeamService:
                     elif revoke_result.get("error_code") == "token_invalidated":
                         error_msg = "Token 已失效 (token_invalidated)"
                         
+                    await db_session.commit()
                     return {
                         "success": False,
                         "message": None,
@@ -1618,6 +1623,7 @@ class TeamService:
                     elif invite_result.get("error_code") == "token_invalidated":
                         error_msg = "Token 已失效 (token_invalidated)"
                         
+                    await db_session.commit()
                     return {
                         "success": False,
                         "message": None,
@@ -1750,6 +1756,7 @@ class TeamService:
                     elif delete_result.get("error_code") == "token_invalidated":
                         error_msg = "Token 已失效 (token_invalidated)"
                         
+                    await db_session.commit()
                     return {
                         "success": False,
                         "message": None,

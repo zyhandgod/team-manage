@@ -309,17 +309,23 @@ class RedeemFlowService:
                         # 事务内只需通过 allowed_statuses 过滤掉非法状态即可
 
                     # 4. 更新状态执行占位
+                    current_use_time = get_now()
                     if is_warranty_code:
                         redemption_code.status = "warranty_active"
                         if is_first_use:
                             warranty_days = redemption_code.warranty_days or 30
-                            redemption_code.warranty_expires_at = get_now() + timedelta(days=warranty_days)
+                            redemption_code.warranty_expires_at = current_use_time + timedelta(days=warranty_days)
+                        elif not redemption_code.warranty_expires_at:
+                            redemption_code.warranty_expires_at = await self.warranty_service.resolve_warranty_expiry(
+                                db_session,
+                                redemption_code,
+                            )
                     else:
                         redemption_code.status = "used"
                     
                     redemption_code.used_by_email = email
                     redemption_code.used_team_id = team_id_final
-                    redemption_code.used_at = get_now()
+                    redemption_code.used_at = current_use_time
 
                     # 增加 Team 成员数占位 (不再手动 +1，由后续 sync 同步)
                     # team.current_members += 1
@@ -538,6 +544,12 @@ class RedeemFlowService:
                             redemption_code.used_by_email = other_record.email
                             redemption_code.used_team_id = other_record.team_id
                             redemption_code.used_at = other_record.redeemed_at
+                            if not redemption_code.warranty_expires_at:
+                                redemption_code.warranty_expires_at = await self.warranty_service.resolve_warranty_expiry(
+                                    db_session,
+                                    redemption_code,
+                                    fallback_time=other_record.redeemed_at,
+                                )
                         else:
                             # 没有其他成功记录，彻底回退到未使用
                             redemption_code.status = "unused"

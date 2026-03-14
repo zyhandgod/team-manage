@@ -456,6 +456,24 @@ class RedemptionService:
             stmt = stmt.limit(per_page).offset(offset)
             result = await db_session.execute(stmt)
             codes = result.scalars().all()
+            code_values = [code.code for code in codes]
+            first_use_map = {}
+
+            if code_values:
+                first_use_stmt = (
+                    select(
+                        RedemptionRecord.code,
+                        func.min(RedemptionRecord.redeemed_at).label("first_used_at")
+                    )
+                    .where(RedemptionRecord.code.in_(code_values))
+                    .group_by(RedemptionRecord.code)
+                )
+                first_use_result = await db_session.execute(first_use_stmt)
+                first_use_map = {
+                    record_code: first_used_at
+                    for record_code, first_used_at in first_use_result.all()
+                }
+
 
             # 构建返回数据
             code_list = []
@@ -468,6 +486,7 @@ class RedemptionService:
                     "expires_at": code.expires_at.isoformat() if code.expires_at else None,
                     "used_by_email": code.used_by_email,
                     "used_team_id": code.used_team_id,
+                    "first_use_at": first_use_map.get(code.code).isoformat() if first_use_map.get(code.code) else None,
                     "used_at": code.used_at.isoformat() if code.used_at else None,
                     "has_warranty": code.has_warranty,
                     "warranty_days": code.warranty_days,

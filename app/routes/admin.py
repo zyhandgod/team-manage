@@ -835,6 +835,9 @@ async def codes_list_page(
             if code.get("expires_at"):
                 dt = datetime.fromisoformat(code["expires_at"])
                 code["expires_at"] = dt.strftime("%Y-%m-%d %H:%M")
+            if code.get("first_use_at"):
+                dt = datetime.fromisoformat(code["first_use_at"])
+                code["first_use_at"] = dt.strftime("%Y-%m-%d %H:%M")
             if code.get("used_at"):
                 dt = datetime.fromisoformat(code["used_at"])
                 code["used_at"] = dt.strftime("%Y-%m-%d %H:%M")

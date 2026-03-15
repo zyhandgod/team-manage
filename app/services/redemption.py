@@ -839,47 +839,73 @@ class RedemptionService:
         has_warranty: Optional[bool] = None,
         warranty_days: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        批量更新兑换码信息
-
-        Args:
-            codes: 兑换码列表
-            db_session: 数据库会话
-            has_warranty: 是否为质保兑换码 (可选)
-            warranty_days: 质保天数 (可选)
-
-        Returns:
-            结果字典
-        """
+        """Bulk update redemption-code warranty settings."""
         try:
             if not codes:
                 return {"success": True, "message": "没有需要更新的兑换码"}
 
-            # 构建更新语句
-            values = {}
-            if has_warranty is not None:
-                values[RedemptionCode.has_warranty] = has_warranty
-            if warranty_days is not None:
-                values[RedemptionCode.warranty_days] = warranty_days
-
-            if not values:
+            if has_warranty is None and warranty_days is None:
                 return {"success": True, "message": "没有提供更新内容"}
 
-            stmt = update(RedemptionCode).where(RedemptionCode.code.in_(codes)).values(values)
-            await db_session.execute(stmt)
+            stmt = select(RedemptionCode).where(RedemptionCode.code.in_(codes))
+            result = await db_session.execute(stmt)
+            code_objects = result.scalars().all()
+
+            if not code_objects:
+                return {
+                    "success": False,
+                    "message": None,
+                    "error": "未找到指定兑换码"
+                }
+
+            code_values = [code_obj.code for code_obj in code_objects]
+            first_use_map = {}
+
+            if code_values:
+                first_use_stmt = (
+                    select(
+                        RedemptionRecord.code,
+                        func.min(RedemptionRecord.redeemed_at).label("first_used_at")
+                    )
+                    .where(RedemptionRecord.code.in_(code_values))
+                    .group_by(RedemptionRecord.code)
+                )
+                first_use_result = await db_session.execute(first_use_stmt)
+                first_use_map = {
+                    record_code: first_used_at
+                    for record_code, first_used_at in first_use_result.all()
+                }
+
+            for code_obj in code_objects:
+                if has_warranty is not None:
+                    code_obj.has_warranty = has_warranty
+                if warranty_days is not None:
+                    code_obj.warranty_days = warranty_days
+
+                if not code_obj.has_warranty:
+                    code_obj.warranty_expires_at = None
+                    continue
+
+                first_use_at = first_use_map.get(code_obj.code) or code_obj.used_at
+                if first_use_at:
+                    code_obj.warranty_expires_at = first_use_at + timedelta(days=code_obj.warranty_days or 30)
+                elif code_obj.status == "unused":
+                    code_obj.warranty_expires_at = None
+
             await db_session.commit()
 
-            logger.info(f"成功批量更新 {len(codes)} 个兑换码")
+            updated_count = len(code_objects)
+            logger.info(f"Updated {updated_count} redemption codes")
 
             return {
                 "success": True,
-                "message": f"成功批量更新 {len(codes)} 个兑换码",
+                "message": f"成功批量更新 {updated_count} 个兑换码",
                 "error": None
             }
 
         except Exception as e:
             await db_session.rollback()
-            logger.error(f"批量更新兑换码失败: {e}")
+            logger.error(f"Bulk update redemption codes failed: {e}")
             return {
                 "success": False,
                 "message": None,

@@ -58,19 +58,16 @@ class WarrantyService:
         if not redemption_code.has_warranty:
             return None
 
-        if redemption_code.warranty_expires_at:
-            return redemption_code.warranty_expires_at
-
         start_time = await self.get_first_activation_time(
             db_session,
             redemption_code,
             fallback_time=fallback_time,
         )
-        if not start_time:
-            return None
+        if start_time:
+            warranty_days = redemption_code.warranty_days or 30
+            return start_time + timedelta(days=warranty_days)
 
-        warranty_days = redemption_code.warranty_days or 30
-        return start_time + timedelta(days=warranty_days)
+        return redemption_code.warranty_expires_at
 
     async def check_warranty_status(
         self,

@@ -26,6 +26,7 @@ class WarrantyService:
         """初始化质保服务"""
         from app.services.team import TeamService
         self.team_service = TeamService()
+
     async def get_first_activation_time(
         self,
         db_session: AsyncSession,

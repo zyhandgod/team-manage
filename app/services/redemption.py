@@ -363,14 +363,18 @@ class RedemptionService:
             redemption_code.status = "used"
             redemption_code.used_by_email = email
             redemption_code.used_team_id = team_id
-            redemption_code.used_at = get_now()
+            redeemed_at = get_now()
+            redemption_code.used_at = redeemed_at
+            if not redemption_code.first_used_at:
+                redemption_code.first_used_at = redeemed_at
 
             # 3. 创建使用记录
             redemption_record = RedemptionRecord(
                 email=email,
                 code=code,
                 team_id=team_id,
-                account_id=account_id
+                account_id=account_id,
+                redeemed_at=redeemed_at
             )
 
             db_session.add(redemption_record)
@@ -457,27 +461,33 @@ class RedemptionService:
             result = await db_session.execute(stmt)
             codes = result.scalars().all()
             code_values = [code.code for code in codes]
-            first_use_map = {}
+            usage_map = {}
 
             if code_values:
-                first_use_stmt = (
+                usage_stmt = (
                     select(
                         RedemptionRecord.code,
-                        func.min(RedemptionRecord.redeemed_at).label("first_used_at")
+                        func.min(RedemptionRecord.redeemed_at).label("first_used_at"),
+                        func.max(RedemptionRecord.redeemed_at).label("last_used_at")
                     )
                     .where(RedemptionRecord.code.in_(code_values))
                     .group_by(RedemptionRecord.code)
                 )
-                first_use_result = await db_session.execute(first_use_stmt)
-                first_use_map = {
-                    record_code: first_used_at
-                    for record_code, first_used_at in first_use_result.all()
+                usage_result = await db_session.execute(usage_stmt)
+                usage_map = {
+                    record_code: {
+                        "first_used_at": first_used_at,
+                        "last_used_at": last_used_at,
+                    }
+                    for record_code, first_used_at, last_used_at in usage_result.all()
                 }
-
 
             # 构建返回数据
             code_list = []
             for code in codes:
+                usage_info = usage_map.get(code.code, {})
+                first_use_at = usage_info.get("first_used_at") or code.first_used_at or code.used_at
+                latest_use_at = usage_info.get("last_used_at") or code.used_at
                 code_list.append({
                     "id": code.id,
                     "code": code.code,
@@ -486,8 +496,8 @@ class RedemptionService:
                     "expires_at": code.expires_at.isoformat() if code.expires_at else None,
                     "used_by_email": code.used_by_email,
                     "used_team_id": code.used_team_id,
-                    "first_use_at": first_use_map.get(code.code).isoformat() if first_use_map.get(code.code) else None,
-                    "used_at": code.used_at.isoformat() if code.used_at else None,
+                    "first_use_at": first_use_at.isoformat() if first_use_at else None,
+                    "used_at": latest_use_at.isoformat() if latest_use_at else None,
                     "has_warranty": code.has_warranty,
                     "warranty_days": code.warranty_days,
                     "warranty_expires_at": code.warranty_expires_at.isoformat() if code.warranty_expires_at else None
@@ -803,19 +813,38 @@ class RedemptionService:
             # 3. 恢复兑换码状态
             code = record.redemption_code
             if code:
-                # 如果是质保兑换，且还有其他记录，状态可能不应该直接回 unused
-                # 但根据逻辑，目前一个码一个记录（除了质保补发可能产生新记录，但那是两个不同的码吧？）
-                # 查了一下模型，RedemptionCode 有 used_by_email 等字段，说明它是单次使用的设计
-                code.status = "unused"
-                code.used_by_email = None
-                code.used_team_id = None
-                code.used_at = None
-                # 特殊处理质保字段
-                if code.has_warranty:
-                    code.warranty_expires_at = None
+                # 先删记录，再按剩余成功记录恢复时间线，避免质保码多次复用时丢历史
+                await db_session.delete(record)
+                await db_session.flush()
 
-            # 4. 删除使用记录
-            await db_session.delete(record)
+                stmt = (
+                    select(RedemptionRecord)
+                    .where(RedemptionRecord.code == code.code)
+                    .order_by(RedemptionRecord.redeemed_at.asc())
+                )
+                result = await db_session.execute(stmt)
+                remaining_records = result.scalars().all()
+
+                if remaining_records:
+                    first_record = remaining_records[0]
+                    latest_record = remaining_records[-1]
+                    code.status = "warranty_active" if code.has_warranty else "used"
+                    code.used_by_email = latest_record.email
+                    code.used_team_id = latest_record.team_id
+                    code.first_used_at = first_record.redeemed_at
+                    code.used_at = latest_record.redeemed_at
+                    if code.has_warranty:
+                        code.warranty_expires_at = first_record.redeemed_at + timedelta(days=code.warranty_days or 30)
+                else:
+                    code.status = "unused"
+                    code.used_by_email = None
+                    code.used_team_id = None
+                    code.first_used_at = None
+                    code.used_at = None
+                    if code.has_warranty:
+                        code.warranty_expires_at = None
+
+            # 4. 提交恢复结果
             await db_session.commit()
 
             logger.info(f"撤回记录成功: {record_id}, 邮箱: {record.email}, 兑换码: {record.code}")

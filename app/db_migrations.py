@@ -67,7 +67,40 @@ def run_auto_migration():
                 ADD COLUMN warranty_days INTEGER DEFAULT 30
             """)
             migrations_applied.append("redemption_codes.warranty_days")
-        
+
+        if not column_exists(cursor, "redemption_codes", "first_used_at"):
+            logger.info("添加 redemption_codes.first_used_at 字段")
+            cursor.execute("""
+                ALTER TABLE redemption_codes 
+                ADD COLUMN first_used_at DATETIME
+            """)
+            migrations_applied.append("redemption_codes.first_used_at")
+
+        # 回填首次成功使用时间：优先取最早成功记录，没有记录时退回 used_at
+        cursor.execute("""
+            UPDATE redemption_codes
+            SET first_used_at = COALESCE(
+                (
+                    SELECT MIN(rr.redeemed_at)
+                    FROM redemption_records rr
+                    WHERE rr.code = redemption_codes.code
+                ),
+                used_at
+            )
+            WHERE first_used_at IS NULL
+              AND (
+                  used_at IS NOT NULL
+                  OR EXISTS (
+                      SELECT 1
+                      FROM redemption_records rr
+                      WHERE rr.code = redemption_codes.code
+                  )
+              )
+        """)
+        if cursor.rowcount and cursor.rowcount > 0:
+            logger.info(f"已回填 {cursor.rowcount} 条 redemption_codes.first_used_at")
+            migrations_applied.append("redemption_codes.first_used_at_backfill")
+
         if not column_exists(cursor, "redemption_records", "is_warranty_redemption"):
             logger.info("添加 redemption_records.is_warranty_redemption 字段")
             cursor.execute("""

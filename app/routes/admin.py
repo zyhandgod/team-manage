@@ -1055,11 +1055,12 @@ async def export_codes(
         worksheet.set_column('C:C', 18)  # 创建时间
         worksheet.set_column('D:D', 18)  # 过期时间
         worksheet.set_column('E:E', 30)  # 使用者邮箱
-        worksheet.set_column('F:F', 18)  # 使用时间
-        worksheet.set_column('G:G', 12)  # 质保时长
+        worksheet.set_column('F:F', 18)  # 首次使用时间
+        worksheet.set_column('G:G', 18)  # 最近使用时间
+        worksheet.set_column('H:H', 12)  # 质保时长
 
         # 写入表头
-        headers = ['兑换码', '状态', '创建时间', '过期时间', '使用者邮箱', '使用时间', '质保时长(天)']
+        headers = ['兑换码', '状态', '创建时间', '过期时间', '使用者邮箱', '首次使用时间', '最近使用时间', '质保时长(天)']
         for col, header in enumerate(headers):
             worksheet.write(0, col, header, header_format)
 
@@ -1077,8 +1078,9 @@ async def export_codes(
             worksheet.write(row, 2, code.get('created_at', '-'), cell_format)
             worksheet.write(row, 3, code.get('expires_at', '永久有效'), cell_format)
             worksheet.write(row, 4, code.get('used_by_email', '-'), cell_format)
-            worksheet.write(row, 5, code.get('used_at', '-'), cell_format)
-            worksheet.write(row, 6, code.get('warranty_days', '-') if code.get('has_warranty') else '-', cell_format)
+            worksheet.write(row, 5, code.get('first_use_at', '-'), cell_format)
+            worksheet.write(row, 6, code.get('used_at', '-'), cell_format)
+            worksheet.write(row, 7, code.get('warranty_days', '-') if code.get('has_warranty') else '-', cell_format)
 
         # 关闭workbook
         workbook.close()

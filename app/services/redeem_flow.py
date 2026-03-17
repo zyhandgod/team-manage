@@ -375,12 +375,14 @@ class RedeemFlowService:
                     if db_session.in_transaction():
                         await db_session.rollback()
                         
+                    redeemed_at = get_now()
                     async with db_session.begin():
                         redemption_record = RedemptionRecord(
                             email=email,
                             code=code,
                             team_id=team_id_final,
                             account_id=final_team_account_id,
+                            redeemed_at=redeemed_at,
                             is_warranty_redemption=final_is_warranty
                         )
                         db_session.add(redemption_record)
@@ -442,6 +444,15 @@ class RedeemFlowService:
                         return {"success": False, "error": f"连续 {max_retries} 次虚假成功，该 Team 账号 ({team_id_final}) 可能存在同步延迟或异常，请稍后再试"}
                     
                     logger.info(f"兑换成功: {email} 加入 Team {team_id_final}")
+
+                    async with db_session.begin():
+                        stmt = select(RedemptionCode).where(RedemptionCode.code == code).with_for_update()
+                        result = await db_session.execute(stmt)
+                        confirmed_code = result.scalar_one_or_none()
+                        if confirmed_code:
+                            confirmed_code.used_at = redeemed_at
+                            if not confirmed_code.first_used_at:
+                                confirmed_code.first_used_at = redeemed_at
 
                     # 检查库存并发送通知 (异步不阻塞)
                     asyncio.create_task(notification_service.check_and_notify_low_stock())
@@ -529,39 +540,34 @@ class RedeemFlowService:
                 result = await db_session.execute(stmt)
                 redemption_code = result.scalar_one_or_none()
                 if redemption_code:
-                    # 质保码回退到 warranty_active 或 unused
-                    if redemption_code.has_warranty:
-                        # 检查是否有其他成功的兑换记录
-                        stmt = select(RedemptionRecord).where(
-                            RedemptionRecord.code == code
-                        ).order_by(RedemptionRecord.redeemed_at.desc())
-                        result = await db_session.execute(stmt)
-                        other_record = result.scalars().first()
-                        
-                        if other_record:
-                            # 有其他记录，恢复为最后一次成功的状态
-                            redemption_code.status = "warranty_active"
-                            redemption_code.used_by_email = other_record.email
-                            redemption_code.used_team_id = other_record.team_id
-                            redemption_code.used_at = other_record.redeemed_at
-                            if not redemption_code.warranty_expires_at:
-                                redemption_code.warranty_expires_at = await self.warranty_service.resolve_warranty_expiry(
-                                    db_session,
-                                    redemption_code,
-                                    fallback_time=other_record.redeemed_at,
-                                )
-                        else:
-                            # 没有其他成功记录，彻底回退到未使用
-                            redemption_code.status = "unused"
-                            redemption_code.warranty_expires_at = None
-                            redemption_code.used_by_email = None
-                            redemption_code.used_team_id = None
-                            redemption_code.used_at = None
+                    stmt = (
+                        select(RedemptionRecord)
+                        .where(RedemptionRecord.code == code)
+                        .order_by(RedemptionRecord.redeemed_at.asc())
+                    )
+                    result = await db_session.execute(stmt)
+                    remaining_records = result.scalars().all()
+
+                    if remaining_records:
+                        first_record = remaining_records[0]
+                        latest_record = remaining_records[-1]
+                        redemption_code.status = "warranty_active" if redemption_code.has_warranty else "used"
+                        redemption_code.used_by_email = latest_record.email
+                        redemption_code.used_team_id = latest_record.team_id
+                        redemption_code.first_used_at = first_record.redeemed_at
+                        redemption_code.used_at = latest_record.redeemed_at
+                        if redemption_code.has_warranty:
+                            redemption_code.warranty_expires_at = await self.warranty_service.resolve_warranty_expiry(
+                                db_session,
+                                redemption_code,
+                                fallback_time=first_record.redeemed_at,
+                            )
                     else:
-                        # 普通码彻底回退到 unused
                         redemption_code.status = "unused"
+                        redemption_code.warranty_expires_at = None
                         redemption_code.used_by_email = None
                         redemption_code.used_team_id = None
+                        redemption_code.first_used_at = None
                         redemption_code.used_at = None
 
                 # 回退 Team 计数 (不再手动 -1，稍后由 sync 同步，或保持原样)

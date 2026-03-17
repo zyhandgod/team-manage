@@ -75,6 +75,7 @@ class RedemptionCode(Base):
     expires_at = Column(DateTime, comment="过期时间")
     used_by_email = Column(String(255), comment="使用者邮箱")
     used_team_id = Column(Integer, ForeignKey("teams.id"), comment="使用的 Team ID")
+    first_used_at = Column(DateTime, comment="首次成功使用时间")
     used_at = Column(DateTime, comment="使用时间")
     has_warranty = Column(Boolean, default=False, comment="是否为质保兑换码")
     warranty_days = Column(Integer, default=30, comment="质保时长(天)")
